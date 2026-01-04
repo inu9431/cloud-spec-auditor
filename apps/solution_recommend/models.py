@@ -53,7 +53,7 @@ class RecommendationItem(models.Model):
     snapshot_provider = models.CharField(max_length=50,default="unknown")
     snapshot_region = models.CharField(max_length=50, default="unknown")
     snapshot_instance_type = models.CharField(max_length=100, default="unknown")
-    snapshot_price_per_hour = models.FloatField()
+    snapshot_price_per_hour = models.FloatField(blank=True, null=True)
 
     confidence = models.FloatField(blank=True, null=True) # 추천 실뢰도
     risk_level =models.CharField(max_length=20, blank=True, null=True) # 안전/보수/공격적
