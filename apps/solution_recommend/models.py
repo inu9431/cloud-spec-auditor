@@ -1,3 +1,7 @@
+from contextlib import nullcontext
+from email.policy import default
+from tokenize import blank_re
+
 from django.db import models
 from django.conf import settings
 from apps.core.models import BaseModel
@@ -50,6 +54,10 @@ class RecommendationItem(models.Model):
     snapshot_region = models.CharField(max_length=50, default="unknown")
     snapshot_instance_type = models.CharField(max_length=100, default="unknown")
     snapshot_price_per_hour = models.FloatField()
+
+    confidence = models.FloatField(blank=True, null=True) # 추천 실뢰도
+    risk_level =models.CharField(max_length=20, blank=True, null=True) # 안전/보수/공격적
+    validated = models.FloatField(default=False) # 하드 룰 검증 통과여부
 
     class Meta:
         db_table = 'recommendation_items'
