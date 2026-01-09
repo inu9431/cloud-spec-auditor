@@ -32,7 +32,7 @@ class Recommendation(BaseModel):
     def __str__(self):
         return f"Recommendation #{self.id} by {self.user}"
 
-class RecommendationItem(models.Model):
+class RecommendationItem(BaseModel):
     """
     추천 결과와 개별 클라우드 서비스 사이 매핑 테이블
     """

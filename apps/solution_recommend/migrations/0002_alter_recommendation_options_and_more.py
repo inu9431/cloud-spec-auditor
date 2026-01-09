@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
         ),
         migrations.RenameField(
             model_name='recommendation',
-            old_name='craeted_at',
+            old_name='created_at',
             new_name='created_at',
         ),
         migrations.AddField(
