@@ -1,7 +1,7 @@
 import os
 import environ
 from pathlib import Path
-
+from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -31,15 +31,25 @@ INSTALLED_APPS = [
 
     # 3rd Party Apps
     'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'django_q',
+    'debug_toolbar', 
 
     # Local Apps
     'apps.core',
-    'apps.solution_recommend',
+    'apps.recommendations',
+    'apps.costs',
+    'apps.users',
+    'apps.inventories',
 ]
 
+AUTH_USER_MODEL ='users.User'
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware', 
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware', 
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -79,6 +89,71 @@ DATABASES = {
         'PORT': env('DB_PORT', default='5432'),
     }
 }
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': BASE_DIR / 'cache', # 루트에 cache 폴더 생성
+        'TIMEOUT' : 3600, # 1시간
+        'OPTIONS' : {
+            'MAX_ENTRIES': 1000,
+        }
+    }
+}
+
+
+Q_CLUSTER = {
+'name': 'cost_optimizer',
+'workers': 4,
+'timeout': 600,
+'retry': 900,
+'queue_limit': 50,
+'bulk': 10,
+'orm': 'default',
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    'EXCEPTION_HANDLER': 'apps.core.handlers.exception_handler.custom_exception_handler',
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+}
+
+# JWT Settings
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+
+
+# CORS
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+]
+
+# Static Files
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Media Files
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+# AI Configuration
+GEMINI_API_KEY = env('GEMINI_API_KEY',default=None)
+AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID', default='')
+AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY', default='')
+AWS_DEFAULT_REGION = env('AWS_DEFAULT_REGION', default='us-east-1')
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -163,3 +238,7 @@ LOGGING = {
         },
     },
 }
+
+# Debug Toolbar (개발 환경만)
+if DEBUG:
+     MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
