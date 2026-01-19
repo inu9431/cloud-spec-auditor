@@ -1,5 +1,5 @@
 # python 3.12 이미지
-FROM python3.12-slim
+FROM python:3.12-slim AS production
 
 # 환경변수 설정
 ENV PYTHONUNBUFFERED=1 \
@@ -28,10 +28,7 @@ RUN uv sync --frozen --no-dev
 COPY . .
 
 # 정적 파일 디렉토리 생성
-RUN mkdir -p staticfiles media cacahe logs
-
-# 정적 파일 수집
-RUN uv run python manage.py collectstatic --noinput
+RUN mkdir -p staticfiles media cache logs
 
 # 포트 노출
 EXPOSE 8000
