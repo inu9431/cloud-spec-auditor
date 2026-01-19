@@ -1,18 +1,19 @@
 from django.db import models
 
+
 class CloudService(models.Model):
     """크롤링 된 클라우드 서비스 상품 정보"""
-    
+
     PROVIDER_CHOICES = [
-        ('AWS', 'Amazon Web Services'),
-        ('GCP', 'Google Cloud Platform'),
-        ('AZURE', 'Microsoft Azure'),
+        ("AWS", "Amazon Web Services"),
+        ("GCP", "Google Cloud Platform"),
+        ("AZURE", "Microsoft Azure"),
     ]
 
     # 기본 정보
     provider = models.CharField(max_length=10, choices=PROVIDER_CHOICES)
     instance_type = models.CharField(max_length=50)
-    region = models.CharField(max_length=50, default='us-east-1')
+    region = models.CharField(max_length=50, default="us-east-1")
 
     # 스펙
     vcpu = models.IntegerField()
@@ -28,12 +29,12 @@ class CloudService(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
-        db_table = 'cloud_services'
+        db_table = "cloud_services"
         indexes = [
-            models.Index(fields=['provider', 'instance_type']),
-            models.Index(fields=['vcpu', 'memory_gb']),
+            models.Index(fields=["provider", "instance_type"]),
+            models.Index(fields=["vcpu", "memory_gb"]),
         ]
-        ordering = ['provider', 'price_per_month']
-    
+        ordering = ["provider", "price_per_month"]
+
     def __str__(self):
         return f"{self.provider} - {self.instance_type} (${self.price_per_month}/month)"
