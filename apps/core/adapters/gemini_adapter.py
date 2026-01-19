@@ -1,14 +1,16 @@
+from typing import Any, Dict
+
 import google.generativeai as genai
-from typing import Dict, Any
 from core.exceptions.ai_exceptions import GeminiAPIError
+
 
 class GeminiAdapter:
     """Gemini API 통신 어댑터"""
 
     def __init__(self, api_key: str):
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('models/gemini-2.5-flash')
-    
+        self.model = genai.GenerativeModel("models/gemini-2.5-flash")
+
     def generate_diagnosis(self, inventory_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         사용자 인벤토리 기반 진단 생성
@@ -19,7 +21,7 @@ class GeminiAdapter:
             return self.parse_structured_output(response.text)
         except Exception as e:
             raise GeminiAPIError(f" Gemini API 호출 실패 {str(e)}")
-    
+
     def _build_diagnosis_prompt(self, data: Dict) -> str:
         """Structured Output을 위한 프롬프트 엔지니어링"""
         return f"""
