@@ -34,7 +34,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
     'django_q',
-    'debug_toolbar', 
+    'debug_toolbar',
+    'drf-spectacular'
 
     # Local Apps
     'apps.core',
@@ -242,3 +243,29 @@ LOGGING = {
 # Debug Toolbar (개발 환경만)
 if DEBUG:
      MIDDLEWARE.append('debug_toolbar.middleware.DebugToolbarMiddleware')
+
+# drf-spectacular 설정
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'CostCutter API',
+    'DESCRIPTION': 'Cloud Cost Optimization AI Solution',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+
+    # JWT 인증 설정
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SECURITY': [{'bearerAuth': []}],
+    'SECURITY_DEFINITIONS': {
+        'bearerAuth': {
+            'type': 'http',
+            'scheme': 'bearer',
+            'bearerFormat': 'JWT',
+        }
+    },
+
+    # Swagger UI 설정
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+    },
+}

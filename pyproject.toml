@@ -15,6 +15,7 @@ dependencies = [
     "django-q2>=1.9.0",
     "djangorestframework>=3.16.1",
     "djangorestframework-simplejwt>=5.5.1",
+    "drf-spectacular>=0.29.0",
     "google-generativeai>=0.8.6",
     "gunicorn>=23.0.0",
     "isort>=7.0.0",
@@ -29,3 +30,36 @@ dependencies = [
     "requests>=2.32.5",
     "whitenoise>=6.11.0",
 ]
+
+[tool.black]
+line-length = 100
+target-version = ['py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.git
+  | \.venv
+  | venv
+  | build
+  | dist
+  | migrations
+  | staticfiles
+  | media
+)/
+'''
+
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip_glob = ["*/migrations/*", "*/staticfiles/*", "*/media/*"]
+known_first_party = ["apps", "costcut"]
+known_django = ["django"]
+sections = ["FUTURE", "STDLIB", "DJANGO", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "costcut.settings"
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+testpaths = ["apps"]
+addopts = "--cov=apps --cov-report=html --cov-report=term-missing --maxfail=5"
