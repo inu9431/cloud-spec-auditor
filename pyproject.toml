@@ -62,4 +62,3 @@ sections = ["FUTURE", "STDLIB", "DJANGO", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLD
 DJANGO_SETTINGS_MODULE = "costcut.settings"
 python_files = ["test_*.py", "*_test.py", "tests.py"]
 testpaths = ["apps"]
-addopts = "--cov=apps --cov-report=html --cov-report=term-missing --maxfail=5"
