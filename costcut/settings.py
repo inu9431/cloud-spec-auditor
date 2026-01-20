@@ -34,7 +34,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "django_q",
     "debug_toolbar",
-    "drf-spectacular",
+    "drf_spectacular",
     # Local Apps
     "apps.core",
     "apps.recommendations",
