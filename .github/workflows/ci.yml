@@ -95,7 +95,7 @@ jobs:
           echo "DB_NAME=test_costcutter" >> .env
           echo "DB_USER=postgres" >> .env
           echo "DB_PASSWORD=postgres" >> .env
-          echo "DB_HOST=postgres" >> .env
+          echo "DB_HOST=localhost" >> .env
           echo "DB_PORT=5432" >> .env
           echo "GEMINI_API_KEY=test-key" >> .env
 
