@@ -16,6 +16,7 @@ class SignupView(APIView):
     """회원가입 뷰"""
 
     permission_classes = [AllowAny]
+    serializer_class = UserSignupserializer
 
     def post(self, request):
         serializer = UserSignupserializer(data=request.data)
@@ -36,6 +37,7 @@ class LoginView(APIView):
     """로그인 뷰"""
 
     permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
 
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -59,6 +61,7 @@ class LogoutView(APIView):
     """로그아웃 뷰"""
 
     permission_classes = [IsAuthenticated]
+    serializer_class = LogoutSerializer
 
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
