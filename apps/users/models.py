@@ -1,11 +1,29 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 
 from apps.core.choices import NormalizedRegion, Provider
 from apps.core.models import BaseModel
 
 
-class User(AbstractUser):
+class UserManager(BaseUserManager):
+    def create_user(self, email, password=None, **extra_fields):
+        if not email:
+            raise ValueError("이메일은 필수입니다")
+        email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("is_active", True)
+        return self.create_user(email, password, **extra_fields)
+
+
+class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     """
     커스텀 사용자 모델
 
@@ -59,9 +77,14 @@ class User(AbstractUser):
         help_text="구독 만료일",
     )
 
-    # 메타 정보
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # 계정 상태
+    is_active = models.BooleanField(default=False, help_text="계정 활성화 여부")
+    is_staff = models.BooleanField(default=False, help_text="스태프 여부")
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS = []
+
+    objects = UserManager()
 
     class Meta:
         db_table = "users"
@@ -69,7 +92,7 @@ class User(AbstractUser):
         verbose_name_plural = "사용자 목록"
 
     def __str__(self):
-        return f"{self.username} ({self.email})"
+        return self.email
 
     # Properties
     @property
@@ -119,6 +142,7 @@ class CloudCredential(BaseModel):
         choices=CredentialType.choices,
         help_text="인증 방식",
     )
+
     nickname = models.CharField(max_length=50, blank=True, help_text="사용자 지정 별칭")
 
     # ==================== AWS 인증 정보 ====================
@@ -217,7 +241,7 @@ class CloudCredential(BaseModel):
 
     def __str__(self):
         nickname = self.nickname or self.provider
-        return f"{self.user.username} - {nickname}"
+        return f"{self.user.email} - {nickname}"
 
     # ==================== Properties ====================
     @property
