@@ -15,12 +15,13 @@ class UserManager(BaseUserManager):
         user.set_password(password)
         user.save(using=self._db)
         return user
-    
+
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
         return self.create_user(email, password, **extra_fields)
+
 
 class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     """
@@ -141,7 +142,7 @@ class CloudCredential(BaseModel):
         choices=CredentialType.choices,
         help_text="인증 방식",
     )
-    
+
     nickname = models.CharField(max_length=50, blank=True, help_text="사용자 지정 별칭")
 
     # ==================== AWS 인증 정보 ====================
