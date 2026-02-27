@@ -28,7 +28,7 @@ class CloudService(BaseModel):
     # 스펙
     vcpu = models.IntegerField(help_text="가상환경 컴퓨팅 CPU")
     memory_gb = models.DecimalField(
-        max_digits=6, decimal_places=2, help_text="가상환경 컴퓨팅 메모리 용량"
+        max_digits=10, decimal_places=2, help_text="가상환경 컴퓨팅 메모리 용량"
     )
     storage_gb = models.IntegerField(
         null=True, blank=True, help_text="가상환경 컴퓨팅 스토리지 용량"
