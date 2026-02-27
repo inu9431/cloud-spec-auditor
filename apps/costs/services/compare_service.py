@@ -1,5 +1,7 @@
 from decimal import Decimal
+
 from apps.costs.models import CloudService
+
 
 class InstanceCompareService:
 
@@ -19,7 +21,7 @@ class InstanceCompareService:
         qs = CloudService.objects.filter(
             vcpu=vcpu,
             memory_gb=memory_gb,
-            pricing_model = "ON_DEMAND",
+            pricing_model="ON_DEMAND",
             is_active=True,
         )
 
@@ -56,7 +58,5 @@ class InstanceCompareService:
             "summary": {
                 "cheapest": cheapest["provider"] + " " + cheapest["instance_type"],
                 "max_monthly_savings": round(max_savings, 2),
-
             },
         }
-

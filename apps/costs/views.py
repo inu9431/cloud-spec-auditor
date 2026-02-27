@@ -5,10 +5,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.costs.serializers import (
-    AzureSyncRequestSerializer,
     AWSSyncRequestSerializer,
+    AzureSyncRequestSerializer,
     GCPSyncRequestSerializer,
-    InstanceCompareRequestSerializer
+    InstanceCompareRequestSerializer,
 )
 from apps.costs.services.compare_service import InstanceCompareService
 from apps.costs.services.price_sync_service import PriceSyncService
@@ -45,6 +45,7 @@ class GCPPriceSyncView(APIView):
         service = PriceSyncService()
         service.sync_gcp_prices(region)
         return Response({"message": f"{region} 가격 동기화 완료"}, status=status.HTTP_200_OK)
+
 
 class InstanceCompareView(APIView):
     permission_classes = [IsAuthenticated]

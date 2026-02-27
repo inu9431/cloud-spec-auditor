@@ -1,8 +1,9 @@
 import json
 from typing import Dict
 
-import google.generativeai as genai
 from django.conf import settings
+
+import google.generativeai as genai
 
 from apps.core.exceptions.ai_exceptions import GeminiAPIError
 

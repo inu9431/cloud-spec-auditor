@@ -1,5 +1,7 @@
 from rest_framework import serializers
+
 from apps.inventories.models import UserInventory
+
 
 class UserInventorySerializer(serializers.ModelSerializer):
     class Meta:

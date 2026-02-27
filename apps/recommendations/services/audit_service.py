@@ -8,6 +8,7 @@ from apps.costs.services.compare_service import InstanceCompareService
 from apps.inventories.models import UserInventory
 from apps.recommendations.models import Recommendation, RecommendationItem
 
+
 class AuditService:
 
     def audit(self, inventory_id: int, user) -> dict:
@@ -57,9 +58,9 @@ class AuditService:
             if option["provider"] == inventory.provider:
                 continue
             cloud_service = CloudService.objects.filter(
-                provider = option["provider"],
-                instance_type = option["instance_type"],
-                region = option["region"],
+                provider=option["provider"],
+                instance_type=option["instance_type"],
+                region=option["region"],
             ).first()
             expected_cost = Decimal(str(option["price_per_month"]))
             RecommendationItem.objects.create(
@@ -72,25 +73,27 @@ class AuditService:
                 original_cpu_usage=inventory.cpu_usage_avg,
                 expected_monthly_cost=expected_cost,
                 savings_amount=current_cost - expected_cost,
-                savings_percentage=(current_cost - expected_cost) / current_cost * 100 if current_cost > 0 else 0,
+                savings_percentage=(
+                    (current_cost - expected_cost) / current_cost * 100 if current_cost > 0 else 0
+                ),
                 reason=ai_result.get("reason", ""),
                 priority=idx + 1,
             )
 
         return {
-                "recommendation_id": recommendation.id,
-                "diagnosis": ai_result.get("diagnosis"),
-                "current": {
-                    "provider": inventory.provider,
-                    "instance_type": inventory.instance_type,
-                    "monthly_cost": float(current_cost),
-                },
-                "recommended": {
-                    "provider": ai_result.get("recommended_provider"),
-                    "instance_type": ai_result.get("recommended_instance"),
-                    "monthly_cost": float(optimized_cost),
-                },
-                "monthly_savings": float(total_savings),
-                "reason": ai_result.get("reason"),
-                "compare_result": compare_result,
-            }
+            "recommendation_id": recommendation.id,
+            "diagnosis": ai_result.get("diagnosis"),
+            "current": {
+                "provider": inventory.provider,
+                "instance_type": inventory.instance_type,
+                "monthly_cost": float(current_cost),
+            },
+            "recommended": {
+                "provider": ai_result.get("recommended_provider"),
+                "instance_type": ai_result.get("recommended_instance"),
+                "monthly_cost": float(optimized_cost),
+            },
+            "monthly_savings": float(total_savings),
+            "reason": ai_result.get("reason"),
+            "compare_result": compare_result,
+        }

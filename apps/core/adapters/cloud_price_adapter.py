@@ -1,15 +1,17 @@
-import requests
 import json
-import boto3
 from decimal import Decimal
+from typing import List, Optional
+
+from django.conf import settings
+
+import boto3
+import requests
+from google.cloud import billing_v1
+from google.oauth2 import service_account
 
 from apps.core.dto.cloud_service_dto import CloudServiceDTO
 from apps.core.utils.region_mapper import normalize_region
 from apps.costs.choices import PricingModel, PricingSource
-from typing import Optional, List
-from google.cloud import billing_v1
-from google.oauth2 import service_account
-from django.conf import settings
 
 AZURE_PRICING_URL = "https://prices.azure.com/api/retail/prices"
 GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
@@ -17,42 +19,42 @@ GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
 # GCP는 SKU가 인스턴스 단위가 아닌 vCPU/RAM 단위로 제공되므로
 # 인스턴스 스펙과 SKU 패밀리 매핑을 별도로 관리
 GCP_MACHINE_SPECS: dict[str, dict] = {
-    "n1-standard-1":  {"vcpu": 1,  "memory_gb": Decimal("3.75")},
-    "n1-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("7.5")},
-    "n1-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("15")},
-    "n1-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("30")},
+    "n1-standard-1": {"vcpu": 1, "memory_gb": Decimal("3.75")},
+    "n1-standard-2": {"vcpu": 2, "memory_gb": Decimal("7.5")},
+    "n1-standard-4": {"vcpu": 4, "memory_gb": Decimal("15")},
+    "n1-standard-8": {"vcpu": 8, "memory_gb": Decimal("30")},
     "n1-standard-16": {"vcpu": 16, "memory_gb": Decimal("60")},
-    "n2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
-    "n2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
-    "n2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "n2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "n2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "n2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "n2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
-    "e2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
-    "e2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
-    "e2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "e2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "e2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "e2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "e2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
 }
 
 # GCP SKU description에서 머신 패밀리를 식별하는 매핑
 GCP_SKU_FAMILY_MAP: dict[str, str] = {
     "N1 Predefined Instance Core": "n1",
-    "N1 Predefined Instance Ram":  "n1",
-    "N2 Instance Core":            "n2",
-    "N2 Instance Ram":             "n2",
-    "E2 Instance Core":            "e2",
-    "E2 Instance Ram":             "e2",
+    "N1 Predefined Instance Ram": "n1",
+    "N2 Instance Core": "n2",
+    "N2 Instance Ram": "n2",
+    "E2 Instance Core": "e2",
+    "E2 Instance Ram": "e2",
 }
 
 
 class CloudPriceAdapter:
 
-    def fetch_azure_prices(self, region:str) -> List[CloudServiceDTO]:
+    def fetch_azure_prices(self, region: str) -> List[CloudServiceDTO]:
         # requests Azure Retail Prices API 호출
         # 응답 JSON 파싱
         # CloudServiceDTO 리스트로 변환해서 반환
         results = []
         url = AZURE_PRICING_URL
         params = {
-            "$filter":(
+            "$filter": (
                 f"armRegionName eq '{region}'"
                 f" and serviceName eq 'Virtual Machines'"
                 f" and priceType eq 'Consumption'"
@@ -68,7 +70,7 @@ class CloudPriceAdapter:
                 if dto:
                     results.append(dto)
             url = data.get("NextPageLink")
-            params = {} #  NextPageLink에 이미 파라미터 포함됨
+            params = {}  #  NextPageLink에 이미 파라미터 포함됨
         return results
 
     def _parse_azure_item(self, item: dict) -> CloudServiceDTO | None:
@@ -108,14 +110,14 @@ class CloudPriceAdapter:
 
         paginator = client.get_paginator("get_products")
         pages = paginator.paginate(
-            ServiceCode = "AmazonEC2",
-            Filters = [
+            ServiceCode="AmazonEC2",
+            Filters=[
                 {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
                 {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": "Linux"},
                 {"Type": "TERM_MATCH", "Field": "tenancy", "Value": "Shared"},
                 {"Type": "TERM_MATCH", "Field": "capacitystatus", "Value": "Used"},
                 {"Type": "TERM_MATCH", "Field": "preInstalledSw", "Value": "NA"},
-            ]
+            ],
         )
 
         for page in pages:
@@ -217,4 +219,3 @@ class CloudPriceAdapter:
         units = tiers[0].unit_price.units
         nanos = tiers[0].unit_price.nanos
         return Decimal(str(units)) + Decimal(str(nanos)) / Decimal("1_000_000_000")
-

@@ -11,6 +11,7 @@ class BaseAPIException(APIException):
     default_detail = "서버 오류가 발생했습니다"
     default_code = "server_error"
 
+
 class GeminiAPIError(BaseAPIException):
     status_code = 502
-    default_detail= "Gemini API 호출에 실패했습니다"
+    default_detail = "Gemini API 호출에 실패했습니다"

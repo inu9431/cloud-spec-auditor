@@ -1,7 +1,7 @@
-from decimal import Decimal
 from dataclasses import dataclass
+from decimal import Decimal
 
-from apps.costs.choices import PricingSource, PricingModel
+from apps.costs.choices import PricingModel, PricingSource
 
 
 @dataclass
@@ -19,7 +19,9 @@ class CloudServiceDTO:
     currency: str
 
     @classmethod
-    def from_azure(cls, item: dict, region_normalized: str, pricing_model: str) -> "CloudServiceDTO":
+    def from_azure(
+        cls, item: dict, region_normalized: str, pricing_model: str
+    ) -> "CloudServiceDTO":
         return cls(
             provider="AZURE",
             instance_type=item.get("armSkuName", ""),
@@ -33,9 +35,10 @@ class CloudServiceDTO:
             currency=item.get("currencyCode", "USD"),
         )
 
-
     @classmethod
-    def from_aws(cls, attributes: dict, region_normalized: str, price_usd: str) -> "CloudServiceDTO":
+    def from_aws(
+        cls, attributes: dict, region_normalized: str, price_usd: str
+    ) -> "CloudServiceDTO":
         memory_str = attributes.get("memory", "0 GiB").replace(" GiB", "").replace(",", "")
         try:
             memory_gb = Decimal(memory_str)
@@ -58,15 +61,15 @@ class CloudServiceDTO:
     @classmethod
     def from_gcp(
         cls,
-         machine_type: str,
-         region: str,
-         region_normalized: str,
-         vcpu: int,
-         memory_gb: Decimal,
-         price_per_hour: Decimal,
-         ) -> "CloudServiceDTO":
+        machine_type: str,
+        region: str,
+        region_normalized: str,
+        vcpu: int,
+        memory_gb: Decimal,
+        price_per_hour: Decimal,
+    ) -> "CloudServiceDTO":
 
-        return  cls(
+        return cls(
             provider="GCP",
             instance_type=machine_type,
             region=region,
