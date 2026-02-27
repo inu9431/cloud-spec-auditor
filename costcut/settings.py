@@ -139,6 +139,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
 ]
 
 # Static Files
@@ -267,3 +269,7 @@ SPECTACULAR_SETTINGS = {
         "displayOperationId": True,
     },
 }
+
+
+_gcp_creds_relative = env("GCP_CREDENTIALS_PATH", default=None)
+GCP_CREDENTIALS_PATH = str(BASE_DIR / _gcp_creds_relative) if _gcp_creds_relative else None
