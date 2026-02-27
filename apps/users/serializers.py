@@ -14,7 +14,6 @@ class UserSignupserializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "username",
             "email",
             "password",
             "password_confirm",
