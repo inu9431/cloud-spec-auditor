@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.costs",
     "apps.users",
     "apps.inventories",
+    "pipeline.raw",
     "rest_framework_simplejwt.token_blacklist",
 ]
 
