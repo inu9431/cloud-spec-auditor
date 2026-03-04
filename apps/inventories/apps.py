@@ -14,7 +14,7 @@ class InventoriesConfig(AppConfig):
 
             # 24h 인벤토리 자동 수집 + audit
             Schedule.objects.get_or_create(
-                func="apps.inventories.tasks.sync_all_inventories",
+                func="pipeline.flows.inventory_flow.sync_all_inventories",
                 defaults={
                     "name": "24h 인벤토리 자동 수집",
                     "schedule_type": Schedule.HOURS,
@@ -25,7 +25,7 @@ class InventoriesConfig(AppConfig):
 
             # 주 1회 3사 가격 최신화
             Schedule.objects.get_or_create(
-                func="apps.inventories.tasks.sync_cloud_prices",
+                func="pipeline.flows.inventory_flow.sync_cloud_prices",
                 defaults={
                     "name": "주 1회 3사 가격 sync",
                     "schedule_type": Schedule.WEEKLY,

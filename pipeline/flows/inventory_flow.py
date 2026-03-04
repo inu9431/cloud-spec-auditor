@@ -17,8 +17,8 @@ def sync_user_inventory(credential_id: int):
     단일 유저 인벤토리 수집 + audit.
     POST /api/inventories/sync/ 에서 async_task로 호출된다.
     """
-    from apps.inventories.services.cloudwatch_sync_service import InventorySyncService
     from apps.users.models import CloudCredential
+    from pipeline.tasks.inventory_sync import InventorySyncService
 
     try:
         credential = CloudCredential.objects.get(id=credential_id, is_active=True)
@@ -57,11 +57,10 @@ def sync_all_inventories():
     ).select_related("user")
 
     for credential in credentials:
-        # 유저별로 별도 태스크로 분리해 병렬 처리
         try:
             from django_q.tasks import async_task
 
-            async_task("apps.inventories.tasks.sync_user_inventory", credential.id)
+            async_task("pipeline.flows.inventory_flow.sync_user_inventory", credential.id)
         except Exception as e:
             logger.error(
                 "태스크 큐 등록 실패: user=%s error=%s",
@@ -89,7 +88,7 @@ def sync_cloud_prices():
     """
     주 1회 스케줄: 3사 가격 데이터 최신화.
     """
-    from apps.costs.services.price_sync_service import PriceSyncService
+    from pipeline.tasks.price_sync import PriceSyncService
 
     service = PriceSyncService()
 

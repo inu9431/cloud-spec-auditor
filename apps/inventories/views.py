@@ -7,7 +7,6 @@ from rest_framework.views import APIView
 from apps.core.choices import Provider
 from apps.inventories.models import UserInventory
 from apps.inventories.serializers import UserInventorySerializer
-from apps.inventories.services.cloudwatch_sync_service import InventorySyncService
 from apps.users.models import CloudCredential
 
 
@@ -54,7 +53,7 @@ class InventorySyncView(APIView):
             )
 
         task_id = async_task(
-            "apps.inventories.tasks.sync_user_inventory",
+            "pipeline.flows.inventory_flow.sync_user_inventory",
             credential.id,
         )
 
