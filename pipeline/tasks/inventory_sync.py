@@ -1,5 +1,5 @@
 """
-AWS 인벤토리 자동 수집 서비스.
+AWS 인벤토리 자동 수집 태스크.
 
 EC2 describe_instances → Cost Explorer (당월 비용) → Compute Optimizer (과스펙 판단)
 세 API를 조합해 UserInventory를 update_or_create 한다.
@@ -16,7 +16,6 @@ from typing import List
 from django.core.cache import cache
 
 from apps.core.adapters.aws_adapter import AWSAdapter
-from apps.core.exceptions.cloud_exception import CloudWatchConnectionError
 from apps.core.utils.region_mapper import normalize_region
 from apps.inventories.models import UserInventory
 from apps.users.models import CloudCredential
