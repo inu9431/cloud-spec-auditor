@@ -36,6 +36,10 @@ class GeminiAdapter:
   [3사 가격 비교]
   {json.dumps(compare_result, ensure_ascii=False, indent=2)}
 
+  ※ 주의: 위 가격 비교는 On-Demand 기준입니다.
+  Reserved(1년 약 40% 절감) 또는 Spot(약 70% 절감, 중단 가능) 적용 시
+  실제 절감폭은 더 커질 수 있습니다. 추천 이유에 이 점을 언급하세요.
+
   반드시 아래 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
   {{
       "diagnosis": "전체 진단 요약 (2-3문장)",
