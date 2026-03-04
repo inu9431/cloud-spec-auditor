@@ -48,8 +48,8 @@ def sync_all_inventories():
     24h 스케줄: 활성 AWS 자격증명을 가진 모든 유저의 인벤토리를 수집하고
     각 유저별로 audit을 자동 실행한다.
     """
-    from apps.users.models import CloudCredential
     from apps.core.choices import Provider
+    from apps.users.models import CloudCredential
 
     credentials = CloudCredential.objects.filter(
         provider=Provider.AWS,
