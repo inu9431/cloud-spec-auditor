@@ -1,4 +1,5 @@
 import json
+import time
 from decimal import Decimal
 from typing import List, Optional
 
@@ -12,6 +13,7 @@ from google.oauth2 import service_account
 from apps.core.dto.cloud_service_dto import CloudServiceDTO
 from apps.core.utils.region_mapper import normalize_region
 from apps.costs.choices import PricingModel, PricingSource
+from apps.core.exceptions.cloud_exception import CloudWatchConnectionError
 
 AZURE_PRICING_URL = "https://prices.azure.com/api/retail/prices"
 GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
@@ -19,19 +21,30 @@ GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
 # GCP는 SKU가 인스턴스 단위가 아닌 vCPU/RAM 단위로 제공되므로
 # 인스턴스 스펙과 SKU 패밀리 매핑을 별도로 관리
 GCP_MACHINE_SPECS: dict[str, dict] = {
-    "n1-standard-1": {"vcpu": 1, "memory_gb": Decimal("3.75")},
-    "n1-standard-2": {"vcpu": 2, "memory_gb": Decimal("7.5")},
-    "n1-standard-4": {"vcpu": 4, "memory_gb": Decimal("15")},
-    "n1-standard-8": {"vcpu": 8, "memory_gb": Decimal("30")},
+    # N1
+    "n1-standard-1":  {"vcpu": 1,  "memory_gb": Decimal("3.75")},
+    "n1-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("7.5")},
+    "n1-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("15")},
+    "n1-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("30")},
     "n1-standard-16": {"vcpu": 16, "memory_gb": Decimal("60")},
-    "n2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
-    "n2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
-    "n2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    # N2
+    "n2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
+    "n2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
+    "n2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
     "n2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
-    "e2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
-    "e2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
-    "e2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "n2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # E2
+    "e2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
+    "e2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
+    "e2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
     "e2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "e2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # C2 — AWS c 시리즈 비교 대상
+    "c2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
+    "c2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "c2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "c2-standard-30": {"vcpu": 30, "memory_gb": Decimal("120")},
+    "c2-standard-60": {"vcpu": 60, "memory_gb": Decimal("240")},
 }
 
 # GCP SKU description에서 머신 패밀리를 식별하는 매핑
@@ -42,15 +55,25 @@ GCP_SKU_FAMILY_MAP: dict[str, str] = {
     "N2 Instance Ram": "n2",
     "E2 Instance Core": "e2",
     "E2 Instance Ram": "e2",
+    "C2 Instance Core": "c2",
+    "C2 Instance Ram": "c2",
 }
 
 
 class CloudPriceAdapter:
 
+    def _get_with_retry(self, url: str, params: dict, max_retries: int = 3) -> requests.Response:
+        """429 Rate Limit 대응 exponential backoff 재시도"""
+        for attempt in range(max_retries):
+            response = requests.get(url, params=params, timeout=30)
+            if response.status_code == 429:
+                time.sleep(2 ** attempt)
+                continue
+            response.raise_for_status()
+            return response
+        raise CloudWatchConnectionError("Azure API 재시도 한도 초과")
+
     def fetch_azure_prices(self, region: str) -> List[CloudServiceDTO]:
-        # requests Azure Retail Prices API 호출
-        # 응답 JSON 파싱
-        # CloudServiceDTO 리스트로 변환해서 반환
         results = []
         url = AZURE_PRICING_URL
         params = {
@@ -61,8 +84,7 @@ class CloudPriceAdapter:
             )
         }
         while url:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
+            response = self._get_with_retry(url, params)
             data = response.json()
 
             for item in data.get("Items", []):
@@ -70,7 +92,7 @@ class CloudPriceAdapter:
                 if dto:
                     results.append(dto)
             url = data.get("NextPageLink")
-            params = {}  #  NextPageLink에 이미 파라미터 포함됨
+            params = {}  # NextPageLink에 이미 파라미터 포함됨
         return results
 
     def _parse_azure_item(self, item: dict) -> CloudServiceDTO | None:
