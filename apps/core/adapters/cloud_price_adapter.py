@@ -11,9 +11,9 @@ from google.cloud import billing_v1
 from google.oauth2 import service_account
 
 from apps.core.dto.cloud_service_dto import CloudServiceDTO
+from apps.core.exceptions.cloud_exception import CloudWatchConnectionError
 from apps.core.utils.region_mapper import normalize_region
 from apps.costs.choices import PricingModel, PricingSource
-from apps.core.exceptions.cloud_exception import CloudWatchConnectionError
 
 AZURE_PRICING_URL = "https://prices.azure.com/api/retail/prices"
 GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
@@ -22,26 +22,26 @@ GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
 # 인스턴스 스펙과 SKU 패밀리 매핑을 별도로 관리
 GCP_MACHINE_SPECS: dict[str, dict] = {
     # N1
-    "n1-standard-1":  {"vcpu": 1,  "memory_gb": Decimal("3.75")},
-    "n1-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("7.5")},
-    "n1-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("15")},
-    "n1-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("30")},
+    "n1-standard-1": {"vcpu": 1, "memory_gb": Decimal("3.75")},
+    "n1-standard-2": {"vcpu": 2, "memory_gb": Decimal("7.5")},
+    "n1-standard-4": {"vcpu": 4, "memory_gb": Decimal("15")},
+    "n1-standard-8": {"vcpu": 8, "memory_gb": Decimal("30")},
     "n1-standard-16": {"vcpu": 16, "memory_gb": Decimal("60")},
     # N2
-    "n2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
-    "n2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
-    "n2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "n2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "n2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "n2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "n2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
     "n2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
     # E2
-    "e2-standard-2":  {"vcpu": 2,  "memory_gb": Decimal("8")},
-    "e2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
-    "e2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "e2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "e2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "e2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "e2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
     "e2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
     # C2 — AWS c 시리즈 비교 대상
-    "c2-standard-4":  {"vcpu": 4,  "memory_gb": Decimal("16")},
-    "c2-standard-8":  {"vcpu": 8,  "memory_gb": Decimal("32")},
+    "c2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "c2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "c2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
     "c2-standard-30": {"vcpu": 30, "memory_gb": Decimal("120")},
     "c2-standard-60": {"vcpu": 60, "memory_gb": Decimal("240")},
@@ -67,7 +67,7 @@ class CloudPriceAdapter:
         for attempt in range(max_retries):
             response = requests.get(url, params=params, timeout=30)
             if response.status_code == 429:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             response.raise_for_status()
             return response

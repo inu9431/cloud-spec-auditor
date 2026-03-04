@@ -5,8 +5,8 @@ from django.contrib.auth import get_user_model
 
 from rest_framework import serializers
 
-from apps.users.models import CloudCredential
 from apps.core.choices import Provider
+from apps.users.models import CloudCredential
 
 User = get_user_model()
 
@@ -109,7 +109,9 @@ class IAMCSVUploadSerializer(serializers.Serializer):
 
     csv_file = serializers.FileField()
     nickname = serializers.CharField(max_length=50, required=False, default="")
-    aws_default_region = serializers.CharField(max_length=50, required=False, default="ap-northeast-2")
+    aws_default_region = serializers.CharField(
+        max_length=50, required=False, default="ap-northeast-2"
+    )
 
     def validate_csv_file(self, value):
         if not value.name.endswith(".csv"):

@@ -40,17 +40,16 @@ class InventorySyncView(APIView):
     def post(self, request):
         from django_q.tasks import async_task
 
-        credential = (
-            CloudCredential.objects.filter(
-                user=request.user,
-                provider=Provider.AWS,
-                is_active=True,
-            )
-            .first()
-        )
+        credential = CloudCredential.objects.filter(
+            user=request.user,
+            provider=Provider.AWS,
+            is_active=True,
+        ).first()
         if not credential:
             return Response(
-                {"detail": "등록된 AWS 자격증명이 없습니다. POST /api/users/credentials/ 로 먼저 등록하세요."},
+                {
+                    "detail": "등록된 AWS 자격증명이 없습니다. POST /api/users/credentials/ 로 먼저 등록하세요."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

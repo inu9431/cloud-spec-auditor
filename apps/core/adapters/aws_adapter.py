@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import boto3
-from botocore.exceptions import ClientError, BotoCoreError
+from botocore.exceptions import BotoCoreError, ClientError
+
 from ..exceptions.cloud_exception import CloudWatchConnectionError
 
 
@@ -37,12 +38,14 @@ class AWSAdapter:
             instances = []
             for reservation in response.get("Reservations", []):
                 for inst in reservation.get("Instances", []):
-                    instances.append({
-                        "instance_id": inst["InstanceId"],
-                        "instance_type": inst["InstanceType"],
-                        "region": self.region,
-                        "launch_time": inst.get("LaunchTime"),
-                    })
+                    instances.append(
+                        {
+                            "instance_id": inst["InstanceId"],
+                            "instance_type": inst["InstanceType"],
+                            "region": self.region,
+                            "launch_time": inst.get("LaunchTime"),
+                        }
+                    )
             return instances
         except (BotoCoreError, ClientError) as e:
             raise CloudWatchConnectionError(f"EC2 인스턴스 조회 실패: {str(e)}")
@@ -88,24 +91,27 @@ class AWSAdapter:
         """
         try:
             response = self.compute_optimizer.get_ec2_instance_recommendations(
-                instanceArns=[
-                    f"arn:aws:ec2:{self.region}::instance/{instance_id}"
-                ]
+                instanceArns=[f"arn:aws:ec2:{self.region}::instance/{instance_id}"]
             )
             recommendations = response.get("instanceRecommendations", [])
             if not recommendations:
                 return {}
 
             rec = recommendations[0]
-            finding = rec.get("finding", "")  # OVER_PROVISIONED / UNDER_PROVISIONED / OPTIMIZED / NOT_OPTIMIZED
+            finding = rec.get(
+                "finding", ""
+            )  # OVER_PROVISIONED / UNDER_PROVISIONED / OPTIMIZED / NOT_OPTIMIZED
             options = rec.get("recommendationOptions", [])
 
             best_option = options[0] if options else {}
             return {
                 "finding": finding,
                 "recommended_instance_type": best_option.get("instanceType", ""),
-                "cpu_usage_avg": rec.get("utilizationMetrics", [{}])[0].get("value", 0.0)
-                if rec.get("utilizationMetrics") else 0.0,
+                "cpu_usage_avg": (
+                    rec.get("utilizationMetrics", [{}])[0].get("value", 0.0)
+                    if rec.get("utilizationMetrics")
+                    else 0.0
+                ),
             }
         except (BotoCoreError, ClientError) as e:
             # Compute Optimizer 미활성화 등 오류 시 빈 결과 반환 (필수 아님)

@@ -3,6 +3,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.choices import Provider
 from apps.users.models import CloudCredential
 from apps.users.serializers import (
     CloudCredentialResponseSerializer,
@@ -14,7 +15,6 @@ from apps.users.serializers import (
     UserSignupserializer,
 )
 from apps.users.services.auth_service import AuthService
-from apps.core.choices import Provider
 
 
 class SignupView(APIView):
@@ -88,9 +88,7 @@ class CloudCredentialView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        serializer = CloudCredentialSerializer(
-            data=request.data, context={"request": request}
-        )
+        serializer = CloudCredentialSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         credential = serializer.save()
         return Response(

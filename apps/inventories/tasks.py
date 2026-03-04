@@ -1,4 +1,3 @@
-
 """
 django-q2 스케줄/비동기 태스크.
 
@@ -7,6 +6,7 @@ django-q2 스케줄/비동기 태스크.
   - sync_all_inventories()              : 24h 스케줄 — 전체 유저 수집 + audit
   - sync_cloud_prices()                 : 주 1회 스케줄 — 3사 가격 최신화
 """
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,8 +17,8 @@ def sync_user_inventory(credential_id: int):
     단일 유저 인벤토리 수집 + audit.
     POST /api/inventories/sync/ 에서 async_task로 호출된다.
     """
-    from apps.users.models import CloudCredential
     from apps.inventories.services.cloudwatch_sync_service import InventorySyncService
+    from apps.users.models import CloudCredential
 
     try:
         credential = CloudCredential.objects.get(id=credential_id, is_active=True)
@@ -48,8 +48,8 @@ def sync_all_inventories():
     24h 스케줄: 활성 AWS 자격증명을 가진 모든 유저의 인벤토리를 수집하고
     각 유저별로 audit을 자동 실행한다.
     """
-    from apps.users.models import CloudCredential
     from apps.core.choices import Provider
+    from apps.users.models import CloudCredential
 
     credentials = CloudCredential.objects.filter(
         provider=Provider.AWS,
@@ -60,6 +60,7 @@ def sync_all_inventories():
         # 유저별로 별도 태스크로 분리해 병렬 처리
         try:
             from django_q.tasks import async_task
+
             async_task("apps.inventories.tasks.sync_user_inventory", credential.id)
         except Exception as e:
             logger.error(
@@ -93,12 +94,12 @@ def sync_cloud_prices():
     service = PriceSyncService()
 
     jobs = [
-        ("AWS",   "ap-northeast-2", service.sync_aws_prices),
-        ("AWS",   "us-east-1",      service.sync_aws_prices),
-        ("GCP",   "asia-northeast3",service.sync_gcp_prices),
-        ("GCP",   "us-east1",       service.sync_gcp_prices),
-        ("AZURE", "koreacentral",   service.sync_azure_prices),
-        ("AZURE", "eastus",         service.sync_azure_prices),
+        ("AWS", "ap-northeast-2", service.sync_aws_prices),
+        ("AWS", "us-east-1", service.sync_aws_prices),
+        ("GCP", "asia-northeast3", service.sync_gcp_prices),
+        ("GCP", "us-east1", service.sync_gcp_prices),
+        ("AZURE", "koreacentral", service.sync_azure_prices),
+        ("AZURE", "eastus", service.sync_azure_prices),
     ]
 
     for provider, region, fn in jobs:
@@ -108,5 +109,7 @@ def sync_cloud_prices():
         except Exception as e:
             logger.error(
                 "price sync 실패: provider=%s region=%s error=%s",
-                provider, region, str(e),
+                provider,
+                region,
+                str(e),
             )
