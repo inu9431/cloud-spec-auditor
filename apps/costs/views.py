@@ -11,7 +11,7 @@ from apps.costs.serializers import (
     InstanceCompareRequestSerializer,
 )
 from apps.costs.services.compare_service import InstanceCompareService
-from apps.costs.services.price_sync_service import PriceSyncService
+from pipeline.tasks.price_sync import PriceSyncService
 
 
 class AzurePriceSyncView(APIView):
