@@ -1,25 +1,23 @@
-"""
-django-q2 스케줄/비동기 태스크.
-
-태스크 목록:
-  - sync_user_inventory(credential_id)  : 단일 유저 수집 + audit (수동 sync 비동기 처리)
-  - sync_all_inventories()              : 24h 스케줄 — 전체 유저 수집 + audit
-  - sync_cloud_prices()                 : 주 1회 스케줄 — 3사 가격 최신화
-"""
-
 import logging
+from datetime import timedelta
+
+from prefect import flow
 
 logger = logging.getLogger(__name__)
 
 
+@flow(name="sync-user-inventory")
 def sync_user_inventory(credential_id: int):
     """
     단일 유저 인벤토리 수집 + audit.
     POST /api/inventories/sync/ 에서 async_task로 호출된다.
     """
     from apps.users.models import CloudCredential
-    from pipeline.tasks.inventory_sync import InventorySyncService
-
+    from pipeline.tasks.extract.aws import extract_ec2_instances
+    from pipeline.tasks.load.raw import save_raw_ec2
+    from pipeline.tasks.transform.normalize import normalize_inventory
+    from pipeline.tasks.transform.validate import validate_inventory
+    from pipeline.tasks.load.inventory import load_inventory
     try:
         credential = CloudCredential.objects.get(id=credential_id, is_active=True)
     except CloudCredential.DoesNotExist:
@@ -27,22 +25,21 @@ def sync_user_inventory(credential_id: int):
         return
 
     try:
-        service = InventorySyncService(credential)
-        inventories = service.sync()
-        logger.info(
-            "inventory sync 완료: user=%s synced=%d",
-            credential.user.email,
-            len(inventories),
-        )
+        raw_data = extract_ec2_instances(credential) # E
+        snapshot = save_raw_ec2(credential, raw_data) # L-raw
+        if snapshot is None:
+            logger.info("변경 없음, sync skip: user=%s", credential.user.email)
+            return
+        dtos = normalize_inventory(snapshot) # T
+        dtos = validate_inventory(dtos) # T
+        inventories = load_inventory(credential.user, dtos) # L-mart
+        logger.info("inventory sync 완료: user=%s synced=%d", credential.user.email, len(inventories))
         _run_audit_for_inventories(inventories)
     except Exception as e:
-        logger.error(
-            "inventory sync 실패: user=%s error=%s",
-            credential.user.email,
-            str(e),
-        )
+        logger.error("inventory sync 실패: user=%s error=%s", credential.user.email, str(e))
 
 
+@flow(name="sync-all-inventories")
 def sync_all_inventories():
     """
     24h 스케줄: 활성 AWS 자격증명을 가진 모든 유저의 인벤토리를 수집하고
@@ -83,32 +80,38 @@ def _run_audit_for_inventories(inventories):
         except Exception as e:
             logger.error("audit 실패: inventory_id=%d error=%s", inventory.id, str(e))
 
-
+@flow(name="sync-cloud-prices")
 def sync_cloud_prices():
     """
     주 1회 스케줄: 3사 가격 데이터 최신화.
     """
-    from pipeline.tasks.price_sync import PriceSyncService
+    from apps.core.adapters.cloud_price_adapter import CloudPriceAdapter
+    from pipeline.tasks.load.raw import save_raw_price
+    from pipeline.tasks.load.prices import validate_prices, load_prices
 
-    service = PriceSyncService()
+    adapter = CloudPriceAdapter()
 
     jobs = [
-        ("AWS", "ap-northeast-2", service.sync_aws_prices),
-        ("AWS", "us-east-1", service.sync_aws_prices),
-        ("GCP", "asia-northeast3", service.sync_gcp_prices),
-        ("GCP", "us-east1", service.sync_gcp_prices),
-        ("AZURE", "koreacentral", service.sync_azure_prices),
-        ("AZURE", "eastus", service.sync_azure_prices),
+        ("AWS", "ap-northeast-2", adapter.fetch_aws_prices),
+        ("AWS", "us-east-1", adapter.fetch_aws_prices),
+        ("GCP", "asia-northeast3", adapter.fetch_gcp_prices),
+        ("GCP", "us-east1", adapter.fetch_gcp_prices),
+        ("AZURE", "koreacentral", adapter.fetch_azure_prices),
+        ("AZURE", "eastus", adapter.fetch_azure_prices),
     ]
-
-    for provider, region, fn in jobs:
+    for provider, region, fetch_fn in jobs:
         try:
-            fn(region=region)
-            logger.info("price sync 완료: provider=%s region=%s", provider, region)
+            dtos = fetch_fn(region)
+            save_raw_price(provider, region, dtos)
+            dtos = validate_prices(dtos)
+            load_prices(dtos)
         except Exception as e:
-            logger.error(
-                "price sync 실패: provider=%s region=%s error=%s",
-                provider,
-                region,
-                str(e),
-            )
+            logger.error("price sync 실패: provider=%s region=%s error=%s", provider, region, str(e))
+
+if __name__ == "__main__":
+    # prefect server start 후 실행하면 스케줄 등록됨
+    # python pipeline/flows/inventory_flow.py
+    sync_all_inventories.serve(
+        name="sync-all-inventories-24h",
+        interval=timedelta(hours=24),
+    )
