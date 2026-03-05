@@ -7,6 +7,7 @@ from apps.inventories.models import UserInventory
 
 logger = logging.getLogger(__name__)
 
+
 @task
 def load_inventory(user, dtos: list[EC2InventoryDTO]) -> list[UserInventory]:
     results = []
@@ -24,7 +25,7 @@ def load_inventory(user, dtos: list[EC2InventoryDTO]) -> list[UserInventory]:
                 "current_monthly_cost": dto.current_monthly_cost,
                 "currency": "USD",
                 "cpu_usage_avg": dto.cpu_usage_avg,
-                "is_active": True
+                "is_active": True,
             },
         )
 

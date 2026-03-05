@@ -16,9 +16,11 @@ class CSVInventoryDTO:
     monthly_cost: float
     region: Optional[str] = "us-east-1"
 
+
 @dataclass
 class EC2InventoryDTO:
     """파이프 라인 normalize 결과 - UserInventory 적재 전 중간 표현"""
+
     resource_id: str
     instance_type: str
     region: str

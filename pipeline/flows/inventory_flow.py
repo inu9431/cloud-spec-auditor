@@ -14,10 +14,11 @@ def sync_user_inventory(credential_id: int):
     """
     from apps.users.models import CloudCredential
     from pipeline.tasks.extract.aws import extract_ec2_instances
+    from pipeline.tasks.load.inventory import load_inventory
     from pipeline.tasks.load.raw import save_raw_ec2
     from pipeline.tasks.transform.normalize import normalize_inventory
     from pipeline.tasks.transform.validate import validate_inventory
-    from pipeline.tasks.load.inventory import load_inventory
+
     try:
         credential = CloudCredential.objects.get(id=credential_id, is_active=True)
     except CloudCredential.DoesNotExist:
@@ -25,15 +26,17 @@ def sync_user_inventory(credential_id: int):
         return
 
     try:
-        raw_data = extract_ec2_instances(credential) # E
-        snapshot = save_raw_ec2(credential, raw_data) # L-raw
+        raw_data = extract_ec2_instances(credential)  # E
+        snapshot = save_raw_ec2(credential, raw_data)  # L-raw
         if snapshot is None:
             logger.info("변경 없음, sync skip: user=%s", credential.user.email)
             return
-        dtos = normalize_inventory(snapshot) # T
-        dtos = validate_inventory(dtos) # T
-        inventories = load_inventory(credential.user, dtos) # L-mart
-        logger.info("inventory sync 완료: user=%s synced=%d", credential.user.email, len(inventories))
+        dtos = normalize_inventory(snapshot)  # T
+        dtos = validate_inventory(dtos)  # T
+        inventories = load_inventory(credential.user, dtos)  # L-mart
+        logger.info(
+            "inventory sync 완료: user=%s synced=%d", credential.user.email, len(inventories)
+        )
         _run_audit_for_inventories(inventories)
     except Exception as e:
         logger.error("inventory sync 실패: user=%s error=%s", credential.user.email, str(e))
@@ -80,14 +83,15 @@ def _run_audit_for_inventories(inventories):
         except Exception as e:
             logger.error("audit 실패: inventory_id=%d error=%s", inventory.id, str(e))
 
+
 @flow(name="sync-cloud-prices")
 def sync_cloud_prices():
     """
     주 1회 스케줄: 3사 가격 데이터 최신화.
     """
     from apps.core.adapters.cloud_price_adapter import CloudPriceAdapter
+    from pipeline.tasks.load.prices import load_prices, validate_prices
     from pipeline.tasks.load.raw import save_raw_price
-    from pipeline.tasks.load.prices import validate_prices, load_prices
 
     adapter = CloudPriceAdapter()
 
@@ -106,7 +110,10 @@ def sync_cloud_prices():
             dtos = validate_prices(dtos)
             load_prices(dtos)
         except Exception as e:
-            logger.error("price sync 실패: provider=%s region=%s error=%s", provider, region, str(e))
+            logger.error(
+                "price sync 실패: provider=%s region=%s error=%s", provider, region, str(e)
+            )
+
 
 if __name__ == "__main__":
     # prefect server start 후 실행하면 스케줄 등록됨

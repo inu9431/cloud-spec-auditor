@@ -1,10 +1,12 @@
 from decimal import Decimal
 
 from django.utils import timezone
-from prefect import task, get_run_logger
+
+from prefect import get_run_logger, task
 
 from apps.core.dto.cloud_service_dto import CloudServiceDTO
 from apps.costs.models import CloudService
+
 
 @task
 def validate_prices(dtos: list[CloudServiceDTO]) -> list[CloudServiceDTO]:
@@ -15,10 +17,16 @@ def validate_prices(dtos: list[CloudServiceDTO]) -> list[CloudServiceDTO]:
             logger.warning("가격 0 이하 skip: %s %s", dto.provider, dto.instance_type)
             continue
         if dto.price_per_hour > 100:
-            logger.warning("비현실적 가격 skip: %s %s price=%s", dto.provider, dto.instance_type, dto.price_per_hour)
+            logger.warning(
+                "비현실적 가격 skip: %s %s price=%s",
+                dto.provider,
+                dto.instance_type,
+                dto.price_per_hour,
+            )
             continue
         valid.append(dto)
     return valid
+
 
 @task
 def load_prices(dtos: list[CloudServiceDTO]) -> int:

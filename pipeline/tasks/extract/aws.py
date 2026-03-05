@@ -4,10 +4,10 @@ from decimal import Decimal
 from django.core.cache import cache
 from django.utils import timezone
 
+from prefect import task
+
 from apps.core.adapters.aws_adapter import AWSAdapter
 from apps.users.models import CloudCredential
-
-from prefect import task
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,15 @@ CACHE_TTL_EC2 = 60 * 60
 CACHE_TTL_COST = 60 * 60 * 24
 CACHE_TTL_OPTIMIZER = 60 * 60 * 12
 
+
 def _build_adapter(credential: CloudCredential) -> AWSAdapter:
     return AWSAdapter(
-        access_key = credential.aws_access_key_id,
-        secret_key = credential.aws_secret_access_key,
+        access_key=credential.aws_access_key_id,
+        secret_key=credential.aws_secret_access_key,
         region=credential.aws_default_region or "ap-northeast-2",
     )
+
+
 @task
 def extract_ec2_instances(credential: CloudCredential) -> dict:
     key = f"ec2_instances:{credential.user_id}"
@@ -38,17 +41,20 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
         cost_data = extract_monthly_cost(credential, instance_id)
         optimizer_data = extract_rightsizing(credential, instance_id)
         specs = extract_instance_specs(credential, instance_type)
-        instances.append({
-            **inst,
-            "monthly_cost": cost_data.get("cost", 0.0),
-            "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
-            "vcpu": specs.get("vcpu", 0),
-            "memory_gb": specs.get("memory_gb", Decimal("0")),
-        })
+        instances.append(
+            {
+                **inst,
+                "monthly_cost": cost_data.get("cost", 0.0),
+                "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
+                "vcpu": specs.get("vcpu", 0),
+                "memory_gb": specs.get("memory_gb", Decimal("0")),
+            }
+        )
 
     result = {"instances": instances, "fetched_at": timezone.now()}
     cache.set(key, result, CACHE_TTL_EC2)
     return result
+
 
 def extract_instance_specs(credential: CloudCredential, instance_type: str) -> dict:
     key = f"ec2_specs:{instance_type}"
@@ -79,7 +85,7 @@ def extract_monthly_cost(credential: CloudCredential, instance_id: str) -> dict:
         return cached
 
     adapter = _build_adapter(credential)
-    cost = adapter.get_monthly_cost(instance_id) # raw float
+    cost = adapter.get_monthly_cost(instance_id)  # raw float
     result = {"instance_id": instance_id, "cost": cost, "fetched_at": timezone.now()}
     cache.set(key, result, CACHE_TTL_COST)
     return result

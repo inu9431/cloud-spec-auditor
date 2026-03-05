@@ -5,6 +5,7 @@ from apps.core.models import BaseModel
 
 User = get_user_model()
 
+
 class RawSnapshotBase(BaseModel):
     payload = models.JSONField()
     fetched_at = models.DateTimeField()
@@ -12,6 +13,7 @@ class RawSnapshotBase(BaseModel):
 
     class Meta:
         abstract = True
+
 
 class RawEC2Snapshot(RawSnapshotBase):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="raw_ec2_snapshots")
@@ -23,7 +25,7 @@ class RawEC2Snapshot(RawSnapshotBase):
 
 
 class RawPriceSnapshot(RawSnapshotBase):
-    provider = models.CharField(max_length=10) # AWS | GCP | Azure
+    provider = models.CharField(max_length=10)  # AWS | GCP | Azure
     region = models.CharField(max_length=50)
 
     class Meta:
