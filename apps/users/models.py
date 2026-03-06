@@ -1,8 +1,8 @@
-from encrypted_model_fields.fields import EncryptedCharField, EncryptedTextField
-
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
+
+from encrypted_model_fields.fields import EncryptedCharField, EncryptedTextField
 
 from apps.core.choices import NormalizedRegion, Provider
 from apps.core.models import BaseModel

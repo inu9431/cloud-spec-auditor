@@ -4,9 +4,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.throttles import AuditThrottle
 from apps.recommendations.serializers import AuditRequestSerializer
 from apps.recommendations.services.audit_service import AuditService
-from apps.core.throttles import AuditThrottle
 
 
 class AuditView(APIView):

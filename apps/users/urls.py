@@ -2,10 +2,11 @@ from django.urls import path
 
 from apps.users.views import (
     CloudCredentialCSVView,
+    CloudCredentialTestView,
     CloudCredentialView,
     LoginView,
     LogoutView,
-    SignupView, CloudCredentialTestView,
+    SignupView,
 )
 
 urlpatterns = [

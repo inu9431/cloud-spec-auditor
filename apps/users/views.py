@@ -1,11 +1,12 @@
 from django.utils import timezone
-from botocore.exceptions import ClientError, BotoCoreError
-from apps.core.adapters.aws_adapter import AWSAdapter
+
+from botocore.exceptions import BotoCoreError, ClientError
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.adapters.aws_adapter import AWSAdapter
 from apps.core.choices import Provider
 from apps.users.models import CloudCredential
 from apps.users.serializers import (
@@ -127,6 +128,7 @@ class CloudCredentialCSVView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class CloudCredentialTestView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -134,15 +136,17 @@ class CloudCredentialTestView(APIView):
         try:
             credential = CloudCredential.objects.get(pk=pk, user=request.user)
         except CloudCredential.DoesNotExist:
-            return Response({"detail": "자격증명을 찾을수 없습니다"},status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "자격증명을 찾을수 없습니다"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         if not credential.is_aws:
             return Response({"detail": "현재 AWS만 지원합니다"}, status=status.HTTP_400_BAD_REQUEST)
 
         adapter = AWSAdapter(
-            access_key = credential.aws_access_key_id,
-            secret_key = credential.aws_secret_access_key,
-            region = credential.aws_default_region or "ap-northeast-2",
+            access_key=credential.aws_access_key_id,
+            secret_key=credential.aws_secret_access_key,
+            region=credential.aws_default_region or "ap-northeast-2",
         )
 
         results = {}
@@ -158,12 +162,15 @@ class CloudCredentialTestView(APIView):
 
         # Cost Explorer 권한 테스트
         try:
-            from datetime import datetime, timezone as tz
+            from datetime import datetime
+            from datetime import timezone as tz
+
             now = datetime.now(tz.utc)
             start = now.replace(day=1).strftime("%Y-%m-%d")
             end = now.strftime("%Y-%m-%d")
             if start == end:
                 from datetime import timedelta
+
                 prev = now.replace(day=1) - timedelta(days=1)
                 start = prev.replace(day=1).strftime("%Y-%m-%d")
                 end = prev.strftime("%Y-%m-%d")
@@ -180,9 +187,7 @@ class CloudCredentialTestView(APIView):
 
         # Compute Optimizer 권한 테스트
         try:
-            adapter.compute_optimizer.get_ec2_instance_recommendations(
-                instanceArns=[]
-            )
+            adapter.compute_optimizer.get_ec2_instance_recommendations(instanceArns=[])
             results["compute_optimizer"] = "OK"
         except ClientError as e:
             code = e.response["Error"]["Code"]

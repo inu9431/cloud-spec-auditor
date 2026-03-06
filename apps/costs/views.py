@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.throttles import PriceSyncThrottle
 from apps.costs.serializers import (
     AWSSyncRequestSerializer,
     AzureSyncRequestSerializer,
@@ -11,7 +12,6 @@ from apps.costs.serializers import (
     InstanceCompareRequestSerializer,
 )
 from apps.costs.services.compare_service import InstanceCompareService
-from apps.core.throttles import PriceSyncThrottle
 from pipeline.tasks.price_sync import PriceSyncService
 
 
