@@ -1,3 +1,5 @@
+from encrypted_model_fields.fields import EncryptedCharField, EncryptedTextField
+
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.db import models
@@ -146,13 +148,13 @@ class CloudCredential(BaseModel):
     nickname = models.CharField(max_length=50, blank=True, help_text="사용자 지정 별칭")
 
     # ==================== AWS 인증 정보 ====================
-    aws_access_key_id = models.CharField(
+    aws_access_key_id = EncryptedCharField(
         max_length=200,
         blank=True,
         null=True,
         help_text="AWS Access Key ID (암호화 필요)",
     )
-    aws_secret_access_key = models.CharField(
+    aws_secret_access_key = EncryptedCharField(
         max_length=200,
         blank=True,
         null=True,
@@ -172,7 +174,7 @@ class CloudCredential(BaseModel):
         null=True,
         help_text="GCP Project ID",
     )
-    gcp_service_account_json = models.TextField(
+    gcp_service_account_json = EncryptedTextField(
         blank=True,
         null=True,
         help_text="GCP Service Account JSON (암호화 필요)",
@@ -191,7 +193,7 @@ class CloudCredential(BaseModel):
         null=True,
         help_text="Azure Client ID",
     )
-    azure_client_secret = models.CharField(
+    azure_client_secret = EncryptedCharField(
         max_length=200,
         blank=True,
         null=True,

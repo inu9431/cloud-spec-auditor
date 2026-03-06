@@ -4,6 +4,8 @@ from apps.inventories.models import UserInventory
 
 
 class UserInventorySerializer(serializers.ModelSerializer):
+    cost_data_notice = serializers.SerializerMethodField()
+
     class Meta:
         model = UserInventory
         fields = [
@@ -21,4 +23,11 @@ class UserInventorySerializer(serializers.ModelSerializer):
             "current_monthly_cost",
             "currency",
             "is_active",
+            "cost_updated_at",
+            "cost_data_notice",
         ]
+
+    def get_cost_data_notice(self, obj):
+        if obj.cost_updated_at:
+            return "비용 데이터는 AWS Cost Explorer 기준이며 최대 24시간 지연될 수 있습니다."
+        return None

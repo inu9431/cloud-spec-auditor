@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
@@ -5,6 +6,8 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
 from ..exceptions.cloud_exception import CloudWatchConnectionError
+
+logger = logging.getLogger(__name__)
 
 
 class AWSAdapter:
@@ -81,7 +84,12 @@ class AWSAdapter:
             if not groups:
                 return 0.0
             return float(groups[0]["Metrics"]["UnblendedCost"]["Amount"])
-        except (BotoCoreError, ClientError) as e:
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("AccessDeniedException", "UnauthorizedException"):
+                logger.warning("Cost Explorer 권한 없음 — monthly_cost=0.0 반환: %s", instance_id)
+                return 0.0
+            raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
+        except BotoCoreError as e:
             raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
 
     def get_rightsizing_recommendations(self, instance_id: str) -> Dict:

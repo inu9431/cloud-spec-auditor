@@ -1,3 +1,6 @@
+from django.utils import timezone
+from botocore.exceptions import ClientError, BotoCoreError
+from apps.core.adapters.aws_adapter import AWSAdapter
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -123,3 +126,76 @@ class CloudCredentialCSVView(APIView):
             CloudCredentialResponseSerializer(credential).data,
             status=status.HTTP_201_CREATED,
         )
+
+class CloudCredentialTestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            credential = CloudCredential.objects.get(pk=pk, user=request.user)
+        except CloudCredential.DoesNotExist:
+            return Response({"detail": "자격증명을 찾을수 없습니다"},status=status.HTTP_404_NOT_FOUND)
+
+        if not credential.is_aws:
+            return Response({"detail": "현재 AWS만 지원합니다"}, status=status.HTTP_400_BAD_REQUEST)
+
+        adapter = AWSAdapter(
+            access_key = credential.aws_access_key_id,
+            secret_key = credential.aws_secret_access_key,
+            region = credential.aws_default_region or "ap-northeast-2",
+        )
+
+        results = {}
+
+        # 권한 테스트
+        try:
+            adapter.ec2.describe_instances(MaxResults=5)
+            results["ec2"] = "OK"
+        except ClientError as e:
+            results["ec2"] = f"권한 없음: {e.response['Error']['Code']}"
+        except BotoCoreError as e:
+            results["ec2"] = f"연결 오류: {str(e)}"
+
+        # Cost Explorer 권한 테스트
+        try:
+            from datetime import datetime, timezone as tz
+            now = datetime.now(tz.utc)
+            start = now.replace(day=1).strftime("%Y-%m-%d")
+            end = now.strftime("%Y-%m-%d")
+            if start == end:
+                from datetime import timedelta
+                prev = now.replace(day=1) - timedelta(days=1)
+                start = prev.replace(day=1).strftime("%Y-%m-%d")
+                end = prev.strftime("%Y-%m-%d")
+            adapter.cost_explorer.get_cost_and_usage(
+                TimePeriod={"Start": start, "End": end},
+                Granularity="MONTHLY",
+                Metrics=["UnblendedCost"],
+            )
+            results["cost_explorer"] = "OK"
+        except ClientError as e:
+            results["cost_explorer"] = f"권한 없음: {e.response['Error']['Code']}"
+        except BotoCoreError as e:
+            results["cost_explorer"] = f"연결 오류: {str(e)}"
+
+        # Compute Optimizer 권한 테스트
+        try:
+            adapter.compute_optimizer.get_ec2_instance_recommendations(
+                instanceArns=[]
+            )
+            results["compute_optimizer"] = "OK"
+        except ClientError as e:
+            code = e.response["Error"]["Code"]
+            if code in ("AccessDeniedException", "OptInRequiredException"):
+                results["compute_optimizer"] = "미활성화 또는 권한 없음 (선택사항)"
+            else:
+                results["compute_optimizer"] = f"권한 없음: {code}"
+
+        # 검증 결과 저장
+        all_required_ok = results.get("ec2") == "OK"
+        credential.is_verified = all_required_ok
+        credential.last_verified_at = timezone.now()
+        credential.verification_error = None if all_required_ok else str(results)
+        credential.save(update_fields=["is_verified", "last_verified_at", "verification_error"])
+
+        return Response(results, status=status.HTTP_200_OK)

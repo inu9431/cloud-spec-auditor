@@ -8,6 +8,7 @@ from apps.core.choices import Provider
 from apps.inventories.models import UserInventory
 from apps.inventories.serializers import UserInventorySerializer
 from apps.users.models import CloudCredential
+from apps.core.throttles import SyncThrottle
 
 
 class UserInventoryView(APIView):
@@ -35,6 +36,7 @@ class InventorySyncView(APIView):
     """
 
     permission_classes = [IsAuthenticated]
+    throttle_classes = [SyncThrottle]
 
     def post(self, request):
         from django_q.tasks import async_task

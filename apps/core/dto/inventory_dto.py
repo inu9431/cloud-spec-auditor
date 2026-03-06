@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from datetime import datetime
+
 
 @dataclass
 class CSVInventoryDTO:
@@ -29,3 +31,4 @@ class EC2InventoryDTO:
     memory_gb: Decimal
     current_monthly_cost: Decimal
     cpu_usage_avg: Optional[Decimal] = None
+    cost_fetched_at: datetime | None = None
