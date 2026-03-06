@@ -98,6 +98,7 @@ jobs:
           echo "DB_HOST=localhost" >> .env
           echo "DB_PORT=5432" >> .env
           echo "GEMINI_API_KEY=test-key" >> .env
+          echo "FIELD_ENCRYPTION_KEY=3OnFcvyXJLpmFg2HKrvn-PPO2d3VGRGspSJZIfNHQuE=" >> .env
 
       - name: Run migrations
         run: uv run python manage.py migrate
