@@ -1,8 +1,7 @@
 from decimal import Decimal
 
-from django.core.exceptions import ObjectDoesNotExist
-
 from apps.core.adapters.gemini_adapter import GeminiAdapter
+from apps.core.exceptions.ai_exceptions import GeminiAPIError
 from apps.costs.models import CloudService
 from apps.costs.services.compare_service import InstanceCompareService
 from apps.inventories.models import UserInventory
@@ -27,22 +26,35 @@ class AuditService:
         if "error" in compare_result:
             return compare_result
 
-        # Gemini 호출
+        # Python이 절감액 계산 (LLM에게 숫자 계산 위임하지 않음)
+        current_cost = inventory.current_monthly_cost
+        optimized_cost = Decimal(str(compare_result["results"][0]["price_per_month"]))
+        total_savings = current_cost - optimized_cost
+        saving_amount = float(total_savings)
+
         inventory_data = {
             "provider": inventory.provider,
             "instance_type": inventory.instance_type,
             "vcpu": inventory.vcpu,
             "memory_gb": float(inventory.memory_gb),
             "region": inventory.region_normalized,
-            "current_monthly_cost": float(inventory.current_monthly_cost),
+            "current_monthly_cost": float(current_cost),
             "cpu_usage_avg": float(inventory.cpu_usage_avg) if inventory.cpu_usage_avg else None,
         }
-        ai_result = GeminiAdapter().generate_audit(inventory_data, compare_result)
 
-        # DB 저장
-        current_cost = inventory.current_monthly_cost
-        optimized_cost = Decimal(str(compare_result["results"][0]["price_per_month"]))
-        total_savings = current_cost - optimized_cost
+        # Gemini 호출 — 실패 시 fallback 메시지로 대체
+        try:
+            ai_result = GeminiAdapter().generate_audit(
+                inventory_data, compare_result, saving_amount
+            )
+        except GeminiAPIError:
+            ai_result = {
+                "diagnosis": f"CPU 사용률 {inventory_data['cpu_usage_avg']}% 기준 과스펙이 감지되었습니다.",
+                "recommendation_type": "SWITCH_PROVIDER",
+                "recommended_provider": compare_result["results"][0]["provider"],
+                "recommended_instance": compare_result["results"][0]["instance_type"],
+                "reason": f"월 ${saving_amount:.2f} USD 절감 가능. On-Demand 기준이며 Reserved/Spot 적용 시 추가 절감 가능합니다.",
+            }
 
         recommendation = Recommendation.objects.create(
             user=user,

@@ -70,18 +70,14 @@ def sync_all_inventories():
 
 
 def _run_audit_for_inventories(inventories):
-    """수집된 인벤토리에 대해 audit 자동 실행"""
+    """수집된 인벤토리에 대해 audit 자동 실행 (순차, Partial Failure 허용)"""
     from apps.recommendations.services.audit_service import AuditService
 
-    for inventory in inventories:
+    for inv in inventories:
         try:
-            AuditService().audit(
-                inventory_id=inventory.id,
-                user=inventory.user,
-            )
-            logger.info("audit 완료: inventory_id=%d", inventory.id)
+            AuditService().audit(inv.id, inv.user)
         except Exception as e:
-            logger.error("audit 실패: inventory_id=%d error=%s", inventory.id, str(e))
+            logger.warning("audit 실패 skip: inventory_id=%d error=%s", inv.id, e)
 
 
 @flow(name="sync-cloud-prices")

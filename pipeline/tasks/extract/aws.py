@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 
 from django.core.cache import cache
@@ -34,23 +35,23 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
     adapter = _build_adapter(credential)
     raw_instances = adapter.get_running_instances()
 
-    instances = []
-    for inst in raw_instances:
+    def _enrich(inst):
         instance_id = inst["instance_id"]
         instance_type = inst["instance_type"]
         cost_data = extract_monthly_cost(credential, instance_id)
         optimizer_data = extract_rightsizing(credential, instance_id)
         specs = extract_instance_specs(credential, instance_type)
-        instances.append(
-            {
-                **inst,
-                "monthly_cost": cost_data.get("cost", 0.0),
-                "cost_fetched_at": cost_data.get("fetched_at"),
-                "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
-                "vcpu": specs.get("vcpu", 0),
-                "memory_gb": specs.get("memory_gb", Decimal("0")),
-            }
-        )
+        return {
+            **inst,
+            "monthly_cost": cost_data.get("cost", 0.0),
+            "cost_fetched_at": cost_data.get("fetched_at"),
+            "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
+            "vcpu": specs.get("vcpu", 0),
+            "memory_gb": specs.get("memory_gb", Decimal("0")),
+        }
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        instances = list(executor.map(_enrich, raw_instances))
 
     result = {"instances": instances, "fetched_at": timezone.now()}
     cache.set(key, result, CACHE_TTL_EC2)
