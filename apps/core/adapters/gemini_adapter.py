@@ -14,9 +14,11 @@ class GeminiAdapter:
         genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
-    def generate_audit(self, inventory_data: Dict, compare_result: Dict) -> Dict:
+    def generate_audit(
+        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+    ) -> Dict:
         try:
-            prompt = self._build_audit_prompt(inventory_data, compare_result)
+            prompt = self._build_audit_prompt(inventory_data, compare_result, saving_amount)
             response = self.model.generate_content(prompt)
             return self._parse_json_response(response.text)
         except GeminiAPIError:
@@ -24,10 +26,12 @@ class GeminiAdapter:
         except Exception as e:
             raise GeminiAPIError(f"Gemini API 호출 실패: {str(e)}")
 
-    def _build_audit_prompt(self, inventory_data: Dict, compare_result: Dict) -> str:
+    def _build_audit_prompt(
+        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+    ) -> str:
         """Structured Output을 위한 프롬프트 엔지니어링"""
         return f"""
-        당신은 클라우드 비용 최적화 전문가입니다.
+  당신은 클라우드 비용 최적화 전문가입니다.
   아래 현재 리소스와 3사 비교 데이터를 분석해 최적화 방안을 JSON으로 제시하세요.
 
   [현재 사용 중인 리소스]
@@ -35,6 +39,9 @@ class GeminiAdapter:
 
   [3사 가격 비교]
   {json.dumps(compare_result, ensure_ascii=False, indent=2)}
+
+  [Python이 계산한 예상 월 절감액]
+  ${saving_amount:.2f} USD
 
   ※ 주의: 위 가격 비교는 On-Demand 기준입니다.
   Reserved(1년 약 40% 절감) 또는 Spot(약 70% 절감, 중단 가능) 적용 시
@@ -46,8 +53,7 @@ class GeminiAdapter:
       "recommendation_type": "SWITCH_PROVIDER 또는 RIGHTSIZING 또는 NO_ACTION",
       "recommended_provider": "AWS 또는 GCP 또는 AZURE",
       "recommended_instance": "인스턴스 타입명",
-      "reason": "추천 근거 (구체적인 절감액 포함)",
-      "monthly_savings": 숫자
+      "reason": "추천 근거 (절감액 ${saving_amount:.2f} USD/월 기준으로 설명)"
   }}
   """
 
@@ -59,5 +65,5 @@ class GeminiAdapter:
                 if cleaned.startswith("json"):
                     cleaned = cleaned[4:]
             return json.loads(cleaned.strip())
-        except Exception as e:
+        except Exception:
             raise GeminiAPIError("Gemini 응답 파싱 실패")
