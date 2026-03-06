@@ -41,6 +41,7 @@ def normalize_inventory(snapshot: RawEC2Snapshot) -> list[EC2InventoryDTO]:
                     if inst.get("cpu_usage_avg") is not None
                     else None
                 ),
+                cost_fetched_at=inst.get("cost_fetched_at"),
             )
         )
 

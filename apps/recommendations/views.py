@@ -4,12 +4,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.throttles import AuditThrottle
 from apps.recommendations.serializers import AuditRequestSerializer
 from apps.recommendations.services.audit_service import AuditService
 
 
 class AuditView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [AuditThrottle]
 
     @extend_schema(request=AuditRequestSerializer)
     def post(self, request):

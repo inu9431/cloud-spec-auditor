@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.users.views import (
     CloudCredentialCSVView,
+    CloudCredentialTestView,
     CloudCredentialView,
     LoginView,
     LogoutView,
@@ -14,4 +15,5 @@ urlpatterns = [
     path("logout/", LogoutView.as_view(), name="logout"),
     path("credentials/", CloudCredentialView.as_view(), name="credentials"),
     path("credentials/csv/", CloudCredentialCSVView.as_view(), name="credentials-csv"),
+    path("credentials/<int:pk>/test/", CloudCredentialTestView.as_view(), name="credentials-test"),
 ]

@@ -24,7 +24,7 @@ def _build_adapter(credential: CloudCredential) -> AWSAdapter:
     )
 
 
-@task
+@task(retries=3, retry_delay_seconds=60)
 def extract_ec2_instances(credential: CloudCredential) -> dict:
     key = f"ec2_instances:{credential.user_id}"
     cached = cache.get(key)
@@ -45,6 +45,7 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
             {
                 **inst,
                 "monthly_cost": cost_data.get("cost", 0.0),
+                "cost_fetched_at": cost_data.get("fetched_at"),
                 "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
                 "vcpu": specs.get("vcpu", 0),
                 "memory_gb": specs.get("memory_gb", Decimal("0")),

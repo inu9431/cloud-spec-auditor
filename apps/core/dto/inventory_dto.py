@@ -1,5 +1,6 @@
 # core/dto/inventory_dto.py
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -29,3 +30,4 @@ class EC2InventoryDTO:
     memory_gb: Decimal
     current_monthly_cost: Decimal
     cpu_usage_avg: Optional[Decimal] = None
+    cost_fetched_at: datetime | None = None

@@ -4,6 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.throttles import PriceSyncThrottle
 from apps.costs.serializers import (
     AWSSyncRequestSerializer,
     AzureSyncRequestSerializer,
@@ -16,6 +17,7 @@ from pipeline.tasks.price_sync import PriceSyncService
 
 class AzurePriceSyncView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PriceSyncThrottle]
 
     @extend_schema(request=AzureSyncRequestSerializer)
     def post(self, request):
@@ -27,6 +29,7 @@ class AzurePriceSyncView(APIView):
 
 class AWSPriceSyncView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PriceSyncThrottle]
 
     @extend_schema(request=AWSSyncRequestSerializer)
     def post(self, request):
@@ -38,6 +41,7 @@ class AWSPriceSyncView(APIView):
 
 class GCPPriceSyncView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [PriceSyncThrottle]
 
     @extend_schema(request=GCPSyncRequestSerializer)
     def post(self, request):

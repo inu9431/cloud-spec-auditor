@@ -63,6 +63,10 @@ class UserInventory(BaseModel):
     # 상태 정보
     is_active = models.BooleanField(default=True, help_text="활성 상태")
 
+    cost_updated_at = models.DateTimeField(
+        null=True, blank=True, help_text="Cost Explorer 데이터 기준 시점 (최대 24시간 지연)"
+    )
+
     class Meta:
         db_table = "user_inventories"
         ordering = ["-created_at"]
