@@ -45,7 +45,11 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
         specs = extract_instance_specs(credential, instance_type)
         return {
             **inst,
-            "launch_time": inst.get("launch_time", "").isoformat() if hasattr(inst.get("launch_time"), "isoformat") else str(inst.get("launch_time", "")),
+            "launch_time": (
+                inst.get("launch_time", "").isoformat()
+                if hasattr(inst.get("launch_time"), "isoformat")
+                else str(inst.get("launch_time", ""))
+            ),
             "monthly_cost": bulk_costs.get(instance_id, 0.0),
             "cost_fetched_at": cost_fetched_at,
             "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
