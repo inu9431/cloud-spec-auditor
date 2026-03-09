@@ -13,7 +13,6 @@ from apps.users.models import CloudCredential
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_EC2 = 60 * 60
-CACHE_TTL_COST = 60 * 60 * 24
 CACHE_TTL_OPTIMIZER = 60 * 60 * 12
 
 
@@ -35,16 +34,19 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
     adapter = _build_adapter(credential)
     raw_instances = adapter.get_running_instances()
 
+    instance_ids = [inst["instance_id"] for inst in raw_instances]
+    bulk_costs = adapter.get_monthly_costs_bulk(instance_ids)
+    cost_fetched_at = timezone.now()
+
     def _enrich(inst):
         instance_id = inst["instance_id"]
         instance_type = inst["instance_type"]
-        cost_data = extract_monthly_cost(credential, instance_id)
         optimizer_data = extract_rightsizing(credential, instance_id)
         specs = extract_instance_specs(credential, instance_type)
         return {
             **inst,
-            "monthly_cost": cost_data.get("cost", 0.0),
-            "cost_fetched_at": cost_data.get("fetched_at"),
+            "monthly_cost": bulk_costs.get(instance_id, 0.0),
+            "cost_fetched_at": cost_fetched_at,
             "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
             "vcpu": specs.get("vcpu", 0),
             "memory_gb": specs.get("memory_gb", Decimal("0")),
@@ -77,19 +79,6 @@ def extract_instance_specs(credential: CloudCredential, instance_type: str) -> d
         result = {"vcpu": 0, "memory_gb": Decimal("0")}
 
     cache.set(key, result, 60 * 60 * 24 * 7)  # 7일 (스펙은 거의 안 바뀜)
-    return result
-
-
-def extract_monthly_cost(credential: CloudCredential, instance_id: str) -> dict:
-    key = f"ce_cost:{credential.user_id}:{instance_id}"
-    cached = cache.get(key)
-    if cached:
-        return cached
-
-    adapter = _build_adapter(credential)
-    cost = adapter.get_monthly_cost(instance_id)  # raw float
-    result = {"instance_id": instance_id, "cost": cost, "fetched_at": timezone.now()}
-    cache.set(key, result, CACHE_TTL_COST)
     return result
 
 
