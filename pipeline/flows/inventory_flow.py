@@ -59,10 +59,15 @@ def _aws_pipeline(credential):
 def _gcp_pipeline(credential):
     from pipeline.tasks.extract.gcp import extract_gcp_instances
     from pipeline.tasks.load.inventory import load_inventory
+    from pipeline.tasks.load.raw import save_raw_gcp
     from pipeline.tasks.transform.validate import validate_inventory
 
     try:
         raw_data = extract_gcp_instances(credential)
+        snapshot = save_raw_gcp(credential, raw_data)
+        if snapshot is None:
+            logger.info("변경 없음, sync skip: user=%s", credential.user.email)
+            return
         dtos = [
             _raw_to_dto(inst, credential.gcp_project_id) for inst in raw_data.get("instances", [])
         ]
@@ -80,10 +85,15 @@ def _gcp_pipeline(credential):
 def _azure_pipeline(credential):
     from pipeline.tasks.extract.azure import extract_azure_instances
     from pipeline.tasks.load.inventory import load_inventory
+    from pipeline.tasks.load.raw import save_raw_azure
     from pipeline.tasks.transform.validate import validate_inventory
 
     try:
         raw_data = extract_azure_instances(credential)
+        snapshot = save_raw_azure(credential, raw_data)
+        if snapshot is None:
+            logger.info("변경 없음, sync skip: user=%s", credential.user.email)
+            return
         dtos = [
             _raw_to_dto(inst, credential.azure_subscription_id)
             for inst in raw_data.get("instances", [])
