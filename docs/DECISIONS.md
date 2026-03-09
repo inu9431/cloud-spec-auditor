@@ -210,3 +210,46 @@ if RawEC2Snapshot.objects.filter(credential=credential, payload_hash=payload_has
 - django-q2 Worker는 같은 EC2에서 실행
 
 **이후 계획:** 유료 고객 확보 후 t3.medium으로 업그레이드 or RDS 분리
+
+---
+
+## ADR-010: Next.js 대시보드 모노레포 구조 선택
+
+**날짜:** 2026-03
+
+**결정:** 별도 레포 대신 프로젝트 루트의 `frontend/` 폴더에 Next.js 추가
+
+**검토한 대안:**
+- 별도 레포 (`cloud-spec-auditor-frontend`): 관심사 분리 명확
+- 모노레포 (`frontend/` 폴더): 단일 레포 관리
+
+**선택 이유 (모노레포):**
+- 1인 개발 환경에서 레포 2개 동기화 부담
+- 면접 시 "풀스택 포트폴리오" 단일 링크로 제시 가능
+- Next.js와 Django 각각 Railway 서비스로 배포 → 구조상 차이 없음
+
+**구현:**
+- Next.js 14 (App Router) + Tailwind CSS + shadcn/ui
+- `frontend/lib/api.ts` — Django REST API 클라이언트 + 타입 정의
+- 4개 페이지: 로그인 / 대시보드 / AI추천 / AWS키관리
+- `NEXT_PUBLIC_API_URL` 환경변수로 백엔드 URL 관리
+
+---
+
+## ADR-011: Cost Explorer GroupBy fallback 전략
+
+**날짜:** 2026-03
+
+**결정:** RESOURCE_ID GroupBy 실패 시 비용 0.0 반환 + 파이프라인 계속 진행
+
+**배경:**
+GroupBy `RESOURCE_ID`는 Cost Explorer 리소스 수준 데이터 활성화 계정에서만 지원. 일반 계정에서 `ValidationException` 발생.
+
+**선택 이유:**
+- 비용 데이터 없어도 인스턴스 목록 수집/저장은 가능
+- 비용 0.0은 "데이터 없음"으로 처리, AI 분석에서 On-Demand 가격 기준으로 대체 계산
+- 파이프라인 중단보다 부분 데이터 제공이 UX상 낫다고 판단
+
+**트레이드오프:**
+- Cost Explorer 미지원 계정 유저는 실제 청구 비용 대신 0.0 표시
+- 수용 이유: 3사 비교 기준 가격(On-Demand)으로 여전히 절감 추천 가능

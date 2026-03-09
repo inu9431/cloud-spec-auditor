@@ -36,7 +36,7 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
 
     instance_ids = [inst["instance_id"] for inst in raw_instances]
     bulk_costs = adapter.get_monthly_costs_bulk(instance_ids)
-    cost_fetched_at = timezone.now()
+    cost_fetched_at = timezone.now().isoformat()
 
     def _enrich(inst):
         instance_id = inst["instance_id"]
@@ -45,17 +45,18 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
         specs = extract_instance_specs(credential, instance_type)
         return {
             **inst,
+            "launch_time": inst.get("launch_time", "").isoformat() if hasattr(inst.get("launch_time"), "isoformat") else str(inst.get("launch_time", "")),
             "monthly_cost": bulk_costs.get(instance_id, 0.0),
             "cost_fetched_at": cost_fetched_at,
             "cpu_usage_avg": optimizer_data.get("cpu_usage_avg"),
             "vcpu": specs.get("vcpu", 0),
-            "memory_gb": specs.get("memory_gb", Decimal("0")),
+            "memory_gb": str(specs.get("memory_gb", "0")),
         }
 
     with ThreadPoolExecutor(max_workers=5) as executor:
         instances = list(executor.map(_enrich, raw_instances))
 
-    result = {"instances": instances, "fetched_at": timezone.now()}
+    result = {"instances": instances, "fetched_at": timezone.now().isoformat()}
     cache.set(key, result, CACHE_TTL_EC2)
     return result
 

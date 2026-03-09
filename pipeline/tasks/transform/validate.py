@@ -26,13 +26,6 @@ def validate_inventory(dtos: list[EC2InventoryDTO]) -> list[EC2InventoryDTO]:
                 dto.memory_gb,
             )
             continue
-        if dto.current_monthly_cost <= 0:
-            logger.warning(
-                "비정상 가격 skip: resource_id=%s cost=%s",
-                dto.resource_id,
-                dto.current_monthly_cost,
-            )
-            continue
         if dto.current_monthly_cost > 10000:
             logger.warning(
                 "비현실적 가격 skip: resource_id=%s cost=%s",
