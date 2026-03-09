@@ -149,11 +149,14 @@ def sync_all_inventories():
         is_active=True,
     ).select_related("user")
 
-    for credential in credentials:
+    for i,credential in enumerate(credentials):
         try:
             from django_q.tasks import async_task
 
-            async_task("pipeline.flows.inventory_flow.sync_user_inventory", credential.id)
+            async_task(
+                "pipeline.flows.inventory_flow.sync_user_inventory",
+                credential.id,
+                schedule=timedelta(seconds=i * 10))
         except Exception as e:
             logger.error(
                 "태스크 큐 등록 실패: user=%s error=%s",

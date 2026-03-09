@@ -92,6 +92,40 @@ class AWSAdapter:
         except BotoCoreError as e:
             raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
 
+    def get_monthly_costs_bulk(self, instance_ids: list[str]) -> dict[str, float]:
+        """Cost Explorer GroupBy로 여러 인스턴스 비용을 1회 호출로 조회"""
+        if not instance_ids:
+            return {}
+        try:
+            now = datetime.now(timezone.utc)
+            start = now.replace(day=1).strftime("%Y-%m-%d")
+            end = now.strftime("%Y-%m-%d")
+            if start == end:
+                prev = now.replace(day=1) - timedelta(days=1)
+                start = prev.replace(day=1).strftime("%Y-%m-%d")
+            response = self.cost_explorer.get_cost_and_usage(
+                TimePeriod={"Start": start, "End": end},
+                Granularity="MONTHLY",
+                Filter={"Dimensions": {"Key": "RESOURCE_ID", "Values": instance_ids}},
+                Metrics=["UnblendedCost"],
+                GroupBy=[{"Type": "DIMENSION", "Key": "RESOURCE_ID"}],
+            )
+            results = response.get("ResultsByTime", [])
+            if not results:
+                return {iid: 0.0 for iid in instance_ids}
+            cost_map = {}
+            for group in results[0].get("Groups", []):
+                iid = group["Keys"][0]
+                cost_map[iid] = float(group["Metrics"]["UnblendedCost"]["Amount"])
+            return {iid: cost_map.get(iid, 0.0) for iid in instance_ids}
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("AccessDeniedException", "UnauthorizedException"):
+                logger.warning("Cost Explorer 권한 없음 — 전체 0.0 반환")
+                return {iid: 0.0 for iid in instance_ids}
+            raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
+        except BotoCoreError as e:
+            raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
+
     def get_rightsizing_recommendations(self, instance_id: str) -> Dict:
         """
         Compute Optimizer로 라이트사이징 추천 조회.
