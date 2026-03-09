@@ -31,3 +31,23 @@ class RawPriceSnapshot(RawSnapshotBase):
     class Meta:
         db_table = "raw_price_snapshots"
         indexes = [models.Index(fields=["provider", "region", "fetched_at"])]
+
+
+class RawGCPSnapshot(RawSnapshotBase):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="raw_gcp_snapshots")
+    credential_id = models.IntegerField()
+    project_id = models.CharField(max_length=100)
+
+    class Meta:
+        db_table = "raw_gcp_snapshots"
+        indexes = [models.Index(fields=["user", "fetched_at"])]
+
+
+class RawAzureSnapshot(RawSnapshotBase):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="raw_azure_snapshots")
+    credential_id = models.IntegerField()
+    subscription_id = models.CharField(max_length=100)
+
+    class Meta:
+        db_table = "raw_azure_snapshots"
+        indexes = [models.Index(fields=["user", "fetched_at"])]
