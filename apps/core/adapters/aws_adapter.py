@@ -119,8 +119,9 @@ class AWSAdapter:
                 cost_map[iid] = float(group["Metrics"]["UnblendedCost"]["Amount"])
             return {iid: cost_map.get(iid, 0.0) for iid in instance_ids}
         except ClientError as e:
-            if e.response["Error"]["Code"] in ("AccessDeniedException", "UnauthorizedException"):
-                logger.warning("Cost Explorer 권한 없음 — 전체 0.0 반환")
+            code = e.response["Error"]["Code"]
+            if code in ("AccessDeniedException", "UnauthorizedException", "ValidationException"):
+                logger.warning("Cost Explorer GroupBy 불가 (%s) — 전체 0.0 반환", code)
                 return {iid: 0.0 for iid in instance_ids}
             raise CloudWatchConnectionError(f"Cost Explorer 조회 실패: {str(e)}")
         except BotoCoreError as e:

@@ -24,7 +24,9 @@ def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list
                 region_normalized = normalize_region(region)
             except ValueError:
                 logger.warning(
-                    "리전 정규화 실패 skip: instance_id=%s region=%s", inst.get("instance_id"), region
+                    "리전 정규화 실패 skip: instance_id=%s region=%s",
+                    inst.get("instance_id"),
+                    region,
                 )
                 continue
 
@@ -45,5 +47,7 @@ def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list
                     cost_fetched_at=inst.get("cost_fetched_at"),
                 )
             )
-        logger.debug("normalize chunk 완료: %d/%d", min(i + chunk_size, len(instances)), len(instances))
+        logger.debug(
+            "normalize chunk 완료: %d/%d", min(i + chunk_size, len(instances)), len(instances)
+        )
     return dtos

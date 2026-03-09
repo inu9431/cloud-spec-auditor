@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 @task
 def save_raw_ec2(credential: CloudCredential, raw_data: dict) -> RawEC2Snapshot | None:
-    payload = raw_data
+    payload = json.loads(json.dumps(raw_data, default=str))
     payload_hash = hashlib.sha256(
         json.dumps(payload, default=str, sort_keys=True).encode("utf-8")
     ).hexdigest()
