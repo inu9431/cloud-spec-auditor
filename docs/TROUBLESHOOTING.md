@@ -65,7 +65,7 @@ aws_secret_access_key = EncryptedCharField(max_length=200, ...)
 FIELD_ENCRYPTION_KEY=<Fernet.generate_key()로 생성>
 ```
 
-**현재 상태:** 미적용 (배포 전 최우선 처리 필요)
+**현재 상태:** ✅ 완료 — `django-encrypted-model-fields` (Fernet) 적용, 마이그레이션 완료
 
 **배운 점:**
 "암호화 필요" 주석은 보안이 아님. 모델 설계 시점에 필드 타입부터 암호화 타입으로 지정해야 함.
@@ -99,7 +99,7 @@ except ClientError as e:
     raise  # 다른 오류는 정상적으로 raise
 ```
 
-**현재 상태:** 미적용
+**현재 상태:** ✅ 완료 — AccessDeniedException / ValidationException → 0.0 반환 + warning 로그 처리
 
 **배운 점:**
 에러 처리는 에러 종류를 구분해야 함. 권한 부족은 재시도해도 해결 안 됨 → graceful degradation이 맞음.
@@ -133,7 +133,7 @@ for dto in dtos:
         continue
 ```
 
-**현재 상태:** 미적용
+**현재 상태:** ✅ 완료 — bulk_create / bulk_update 분리 + 인스턴스별 try/except Partial Failure 허용
 
 **배운 점:**
 파이프라인에서 "전부 아니면 전무(All or Nothing)"는 외부 API 의존 시 비현실적.
@@ -166,7 +166,7 @@ def extract_ec2_instances(credential): ...
 def extract_monthly_cost(credential, instance_id): ...
 ```
 
-**현재 상태:** 미적용
+**현재 상태:** ✅ 완료 — extract/aws.py, gcp.py, azure.py 모두 `@task(retries=3, retry_delay_seconds=60)` 적용
 
 **배운 점:**
 외부 API 호출은 항상 일시 장애 가능성을 전제해야 함. retries는 선택이 아닌 기본값.
@@ -195,7 +195,7 @@ DRF Custom Throttle로 엔드포인트별 호출 제한.
 # 가격 sync: 전역 1회/1시간
 ```
 
-**현재 상태:** 미적용
+**현재 상태:** ✅ 완료 — SyncThrottle(1회/10분) / AuditThrottle(1회/5분) / PriceSyncThrottle(1회/1시간) 적용
 
 **배운 점:**
 API Rate Limit은 서버 보호만이 목적이 아님. 유저 AWS 계정 비용과 연결되는 엔드포인트는 고객 보호 차원에서도 반드시 제한 필요.
@@ -400,6 +400,38 @@ Cost Explorer RESOURCE_ID GroupBy 미지원 계정에서 모든 인스턴스의 
 
 **배운 점:**
 데이터 검증 기준은 "비즈니스적으로 불가능한 값"에만 적용해야 함. 0.0 비용은 API 권한 부족으로 충분히 발생 가능한 정상 케이스.
+
+---
+
+## #013: Compute Optimizer 미활성화 시 근거 없는 과스펙 추천
+
+**발견 시점:** 2026-03 (AI 추천 정확성 검토 중)
+
+**문제:**
+Compute Optimizer가 비활성화된 유저 또는 활성화 후 14일 미만인 유저의 경우 `get_rightsizing_recommendations()`가 `{}` 반환. 이 상태에서 audit이 실행되면 CPU/메모리 사용률 근거 없이 Gemini가 "과스펙"이라고 추천할 수 있음.
+
+- Compute Optimizer 활성화: 3사 가격 비교 ✅ + 과스펙 감지 ✅
+- Compute Optimizer 비활성화: 3사 가격 비교 ✅ + 과스펙 감지 ❌ (근거 없음)
+
+핵심 가치("과스펙 감지")가 데이터 없이 실행되는 구조적 문제.
+
+**해결 방향:**
+
+1. Gemini 프롬프트를 Compute Optimizer 데이터 유무에 따라 분기
+```python
+if rightsizing_data:
+    prompt = f"CPU {cpu_util}%, 메모리 {mem_util}% 기준 과스펙 분석..."
+else:
+    prompt = f"사용률 데이터 없음. {instance_type} 스펙 기준 3사 가격 비교만 제공..."
+```
+
+2. `/credentials/test/` 응답에 Compute Optimizer 활성화 상태 포함
+3. 대시보드에서 비활성화 시 "가격 비교만 제공" 배너 표시
+
+**현재 상태:** 미적용 — 구현 예정
+
+**배운 점:**
+서비스 핵심 기능의 정확성은 LLM이 아니라 입력 데이터 품질에서 결정됨. 데이터가 없을 때의 동작을 명시적으로 처리해야 함.
 
 ---
 
