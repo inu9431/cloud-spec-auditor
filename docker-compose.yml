@@ -1,22 +1,22 @@
 services:
   db:
-   image: postgres:16-alpine
-   container_name: costs_db
-   environment:
+    image: postgres:16-alpine
+    container_name: costs_db
+    environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       PGDATA: /var/lib/postgresql/data/pgdata
-   volumes:
-    - postgres_data:/var/lib/postgresql/data
-   ports:
-    - "5432:5432"
-   healthcheck:
-    test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-    interval: 10s
-    timeout: 5s
-    retries: 5
-   restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   web:
     build:
@@ -30,12 +30,14 @@ services:
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
+      - cache_volume:/app/cache
     ports:
       - "8002:8000"
     env_file:
      - .env
     environment:
       - DB_HOST=db
+      - PREFECT_API_URL=http://prefect:4200/api
     depends_on:
       db:
         condition: service_healthy
@@ -55,15 +57,48 @@ services:
       - .env
     environment:
       - DB_HOST=db
+      - PREFECT_API_URL=http://prefect:4200/api
     depends_on:
-      web:
-        condition: service_started
+      db:
+        condition: service_healthy
     restart: unless-stopped
+
+  prefect:
+    image: prefecthq/prefect:3-latest
+    container_name: costs_prefect
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    environment:
+      - PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prefect-worker:
+    build:
+      context: .
+      target: production
+    container_name: costs_prefect_worker
+    command: uv run python pipeline/flow/inventory_flow.py
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=db
+      - PREFECT_API_URL=http://prefect:4200/api
+    depends_on:
+      prefect:
+        condition: service_started
+      db:
+        condition: service_healthy
+    restart: on-failure
 
 volumes:
   postgres_data:
   static_volume:
   media_volume:
+  cache_volume:
 
 
 
