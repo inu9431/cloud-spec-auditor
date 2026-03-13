@@ -80,7 +80,7 @@ class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     )
 
     # 계정 상태
-    is_active = models.BooleanField(default=False, help_text="계정 활성화 여부")
+    is_active = models.BooleanField(default=True, help_text="계정 활성화 여부")
     is_staff = models.BooleanField(default=False, help_text="스태프 여부")
 
     USERNAME_FIELD = "email"

@@ -34,8 +34,9 @@ export default function DashboardPage() {
     try {
       const inv = await inventory.list();
       setInventories(inv);
-    } catch {
-      router.push("/login");
+    } catch (err) {
+      console.error("fetchData error:", err);
+      setInventories([]);
     } finally {
       setLoading(false);
     }

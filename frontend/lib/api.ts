@@ -63,6 +63,11 @@ export const recommendations = {
       method: "POST",
       body: JSON.stringify({ inventory_id }),
     }),
+  consult: (description: string) =>
+    request<ConsultResult>("/api/recommendations/consult/", {
+      method: "POST",
+      body: JSON.stringify({ description }),
+    }),
 };
 
 // Credentials
@@ -116,6 +121,29 @@ export interface CompareResult {
   instance_type: string;
   monthly_cost: number;
   region_normalized: string;
+}
+
+export interface ConsultResult {
+  estimated_spec: {
+    vcpu: number;
+    memory_gb: number;
+    storage_gb: number;
+    region: string;
+    reason: string;
+  };
+  compare_result: {
+    results: {
+      provider: string;
+      instance_type: string;
+      price_per_month: number;
+      region_normalized: string;
+    }[];
+  };
+  summary: string;
+  recommended_provider: string;
+  recommended_instance: string;
+  reason: string;
+  architecture_tips: string;
 }
 
 export interface Credential {
