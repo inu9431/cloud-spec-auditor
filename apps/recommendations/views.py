@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from apps.core.throttles import AuditThrottle
 from apps.recommendations.serializers import AuditRequestSerializer
 from apps.recommendations.services.audit_service import AuditService
+from apps.recommendations.services.consult_service import ConsultService
 
 
 class AuditView(APIView):
@@ -25,4 +26,21 @@ class AuditView(APIView):
 
         if "error" in result:
             return Response(result, status=status.HTTP_404_NOT_FOUND)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class ConsultView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        description = request.data.get("description", "").strip()
+        if not description:
+            return Response(
+                {"error": "description 필드가 필요합니다"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = ConsultService().consult(description)
+
+        if "error" in result and "estimated_spec" not in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
         return Response(result, status=status.HTTP_200_OK)

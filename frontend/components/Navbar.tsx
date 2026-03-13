@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 const navItems = [
   { href: "/dashboard", label: "대시보드" },
   { href: "/recommendations", label: "AI 추천" },
+  { href: "/consulting", label: "AI 컨설팅" },
   { href: "/credentials", label: "AWS 키 관리" },
 ];
 

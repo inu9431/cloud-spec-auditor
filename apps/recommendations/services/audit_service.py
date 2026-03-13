@@ -28,7 +28,14 @@ class AuditService:
 
         # Python이 절감액 계산 (LLM에게 숫자 계산 위임하지 않음)
         current_cost = inventory.current_monthly_cost
-        optimized_cost = Decimal(str(compare_result["results"][0]["price_per_month"]))
+
+        # 현재 provider 제외하고 가장 저렴한 대안 찾기
+        alternatives = [r for r in compare_result["results"] if r["provider"] != inventory.provider]
+        if not alternatives:
+            return {"error": "비교 가능한 타 provider 인스턴스가 없습니다"}
+
+        best_alternative = alternatives[0]  # price_per_hour 오름차순 정렬됨
+        optimized_cost = Decimal(str(best_alternative["price_per_month"]))
         total_savings = current_cost - optimized_cost
         saving_amount = float(total_savings)
 
@@ -51,8 +58,8 @@ class AuditService:
             ai_result = {
                 "diagnosis": f"CPU 사용률 {inventory_data['cpu_usage_avg']}% 기준 과스펙이 감지되었습니다.",
                 "recommendation_type": "SWITCH_PROVIDER",
-                "recommended_provider": compare_result["results"][0]["provider"],
-                "recommended_instance": compare_result["results"][0]["instance_type"],
+                "recommended_provider": best_alternative["provider"],
+                "recommended_instance": best_alternative["instance_type"],
                 "reason": f"월 ${saving_amount:.2f} USD 절감 가능. On-Demand 기준이며 Reserved/Spot 적용 시 추가 절감 가능합니다.",
             }
 
@@ -72,7 +79,7 @@ class AuditService:
             cloud_service = CloudService.objects.filter(
                 provider=option["provider"],
                 instance_type=option["instance_type"],
-                region=option["region"],
+                region_normalized=option["region_normalized"],
             ).first()
             expected_cost = Decimal(str(option["price_per_month"]))
             RecommendationItem.objects.create(

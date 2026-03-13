@@ -18,7 +18,7 @@ async function request<T>(
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
 
-  if (res.status === 401) {
+  if (res.status === 401 && path !== "/api/users/login/") {
     localStorage.removeItem("access_token");
     window.location.href = "/login";
     throw new Error("Unauthorized");
@@ -26,7 +26,7 @@ async function request<T>(
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({}));
-    throw new Error(error.detail || "API 오류가 발생했습니다.");
+    throw new Error(error.message || error.detail || "API 오류가 발생했습니다.");
   }
 
   if (res.status === 204) return {} as T;
@@ -40,10 +40,10 @@ export const auth = {
       method: "POST",
       body: JSON.stringify({ email, password }),
     }),
-  signup: (email: string, password: string) =>
-    request("/api/users/signup/", {
+  signup: (email: string, password: string, password_confirm: string) =>
+    request<{ tokens: { access: string; refresh: string } }>("/api/users/signup/", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, password_confirm }),
     }),
   logout: () =>
     request("/api/users/logout/", { method: "POST" }),
@@ -62,6 +62,11 @@ export const recommendations = {
     request<Recommendation>("/api/recommendations/audit/", {
       method: "POST",
       body: JSON.stringify({ inventory_id }),
+    }),
+  consult: (description: string) =>
+    request<ConsultResult>("/api/recommendations/consult/", {
+      method: "POST",
+      body: JSON.stringify({ description }),
     }),
 };
 
@@ -116,6 +121,29 @@ export interface CompareResult {
   instance_type: string;
   monthly_cost: number;
   region_normalized: string;
+}
+
+export interface ConsultResult {
+  estimated_spec: {
+    vcpu: number;
+    memory_gb: number;
+    storage_gb: number;
+    region: string;
+    reason: string;
+  };
+  compare_result: {
+    results: {
+      provider: string;
+      instance_type: string;
+      price_per_month: number;
+      region_normalized: string;
+    }[];
+  };
+  summary: string;
+  recommended_provider: string;
+  recommended_instance: string;
+  reason: string;
+  architecture_tips: string;
 }
 
 export interface Credential {
