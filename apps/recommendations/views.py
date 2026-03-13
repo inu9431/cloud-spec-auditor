@@ -35,7 +35,9 @@ class ConsultView(APIView):
     def post(self, request):
         description = request.data.get("description", "").strip()
         if not description:
-            return Response({"error": "description 필드가 필요합니다"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "description 필드가 필요합니다"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         result = ConsultService().consult(description)
 

@@ -142,7 +142,9 @@ class GeminiAdapter:
 }}
 """
 
-    def _build_consult_explain_prompt(self, description: str, spec: Dict, compare_result: Dict) -> str:
+    def _build_consult_explain_prompt(
+        self, description: str, spec: Dict, compare_result: Dict
+    ) -> str:
         """2단계 프롬프트: 스펙 + 가격비교 결과 → 유저 설명만 담당. 숫자 계산 금지."""
         return f"""
 당신은 클라우드 비용 최적화 전문가입니다.
@@ -171,4 +173,3 @@ class GeminiAdapter:
     "architecture_tips": "추가 아키텍처 제안 (CDN, 오토스케일링 등, 1-2문장)"
 }}
 """
-

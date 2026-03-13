@@ -30,10 +30,7 @@ class AuditService:
         current_cost = inventory.current_monthly_cost
 
         # 현재 provider 제외하고 가장 저렴한 대안 찾기
-        alternatives = [
-            r for r in compare_result["results"]
-            if r["provider"] != inventory.provider
-        ]
+        alternatives = [r for r in compare_result["results"] if r["provider"] != inventory.provider]
         if not alternatives:
             return {"error": "비교 가능한 타 provider 인스턴스가 없습니다"}
 
