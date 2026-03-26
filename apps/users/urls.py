@@ -8,7 +8,7 @@ from apps.users.views import (
     LogoutView,
     SignupView,
 )
-
+# api/users/signup
 urlpatterns = [
     path("signup/", SignupView.as_view(), name="signup"),
     path("login/", LoginView.as_view(), name="login"),

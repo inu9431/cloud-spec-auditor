@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { recommendations, ConsultResult } from "@/lib/api";
+import { recommendations, ConsultChatResult } from "@/lib/api";
 import Navbar from "@/components/Navbar";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import ReactMarkdown from "react-markdown";
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
 
 const EXAMPLES = [
   "쇼핑몰 만들건데 한국 유저 500명 동시접속이 목표야. 상품 이미지 많고 결제 기능 있어.",
@@ -17,27 +20,50 @@ const EXAMPLES = [
 
 export default function ConsultingPage() {
   const router = useRouter();
-  const [description, setDescription] = useState("");
-  const [result, setResult] = useState<ConsultResult | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [showCta, setShowCta] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!localStorage.getItem("access_token")) {
-      router.push("/login");
-    }
+    if (!localStorage.getItem("access_token")) router.push("/login");
   }, []);
 
-  async function handleConsult() {
-    if (!description.trim()) return;
-    setError("");
-    setResult(null);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
+
+  function toHistory(msgs: Message[]) {
+    return msgs.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [m.content],
+    }));
+  }
+
+  async function handleSend(text?: string) {
+    const message = (text ?? input).trim();
+    if (!message || loading) return;
+
+    const newMessages: Message[] = [...messages, { role: "user", content: message }];
+    setMessages(newMessages);
+    setInput("");
     setLoading(true);
+
     try {
-      const data = await recommendations.consult(description);
-      setResult(data);
+      const history = toHistory(messages);
+      const data: ConsultChatResult = await recommendations.consultChat(message, history);
+
+      setMessages([...newMessages, { role: "assistant", content: data.reply }]);
+      setShowCta(data.show_register_cta);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "분석에 실패했습니다.");
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "응답에 실패했습니다.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -46,134 +72,105 @@ export default function ConsultingPage() {
   return (
     <>
       <Navbar />
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold">AI 인프라 컨설팅</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            서비스 기획을 설명하면 적합한 클라우드 인스턴스와 아키텍처를 추천해드립니다.
-          </p>
-        </div>
+      <main className="max-w-2xl mx-auto px-4 flex flex-col" style={{ height: "calc(100vh - 64px)" }}>
+        <h1 className="text-xl font-semibold py-4">AI 인프라 컨설팅</h1>
 
-        {/* 입력 */}
-        <Card>
-          <CardContent className="pt-6 space-y-4">
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="예: 쇼핑몰 만들건데 한국 유저 500명 동시접속이 목표야. 이미지 많고 결제 기능 있어."
-              className="w-full border rounded p-3 text-sm resize-none h-28 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-
-            {/* 예시 버튼 */}
-            <div className="space-y-1">
-              <p className="text-xs text-gray-400">예시 선택</p>
-              <div className="flex flex-col gap-2">
+        {/* 메시지 영역 */}
+        <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+          {messages.length === 0 && (
+            <div className="space-y-3 pt-2">
+              <p className="text-sm text-gray-500">
+                서비스를 설명하면 적합한 클라우드 인프라를 추천해드립니다.
+              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-400">예시 선택</p>
                 {EXAMPLES.map((ex, i) => (
                   <button
                     key={i}
-                    onClick={() => setDescription(ex)}
-                    className="text-left text-xs text-blue-600 hover:underline truncate"
+                    onClick={() => handleSend(ex)}
+                    className="block text-left text-sm text-blue-600 hover:underline"
                   >
                     {ex}
                   </button>
                 ))}
               </div>
             </div>
+          )}
 
-            {error && <p className="text-red-500 text-sm">{error}</p>}
-
-            <Button
-              onClick={handleConsult}
-              disabled={loading || !description.trim()}
-              className="w-full"
-            >
-              {loading ? "AI 분석 중..." : "인스턴스 추천받기"}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* 결과 */}
-        {result && (
-          <div className="space-y-4">
-            {/* 추정 스펙 */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-gray-500">추정된 서버 스펙</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3 text-sm">
-                  <span className="bg-gray-100 rounded px-2 py-1">vCPU {result.estimated_spec.vcpu}코어</span>
-                  <span className="bg-gray-100 rounded px-2 py-1">메모리 {result.estimated_spec.memory_gb}GB</span>
-                  <span className="bg-gray-100 rounded px-2 py-1">스토리지 {result.estimated_spec.storage_gb}GB</span>
-                  <span className="bg-gray-100 rounded px-2 py-1">리전 {result.estimated_spec.region}</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">{result.estimated_spec.reason}</p>
-              </CardContent>
-            </Card>
-
-            {/* AI 요약 + 추천 */}
-            <Card className="border-blue-200 bg-blue-50">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm text-gray-600">AI 분석 결과</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm text-gray-700">{result.summary}</p>
-
-                <div className="flex items-center gap-2">
-                  <Badge>{result.recommended_provider}</Badge>
-                  <span className="font-semibold text-sm">{result.recommended_instance}</span>
-                  {result.compare_result?.results && (() => {
-                    const rec = result.compare_result.results.find(
-                      (r) => r.provider === result.recommended_provider && r.instance_type === result.recommended_instance
-                    );
-                    return rec ? (
-                      <span className="text-sm text-green-700 font-medium">
-                        ${rec.price_per_month.toFixed(2)}/월
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-
-                <p className="text-sm text-gray-600">{result.reason}</p>
-
-                {result.architecture_tips && (
-                  <div className="bg-white rounded p-3 border border-blue-100">
-                    <p className="text-xs font-medium text-gray-500 mb-1">아키텍처 제안</p>
-                    <p className="text-sm text-gray-700">{result.architecture_tips}</p>
-                  </div>
+          {messages.map((m, i) => (
+            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  m.role === "user"
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-100 text-gray-800"
+                }`}
+              >
+                {m.role === "user" ? (
+                  m.content
+                ) : (
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li>{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      h3: ({ children }) => <p className="font-semibold mt-3 mb-1">{children}</p>,
+                      hr: () => <hr className="my-2 border-gray-300" />,
+                    }}
+                  >
+                    {m.content}
+                  </ReactMarkdown>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+          ))}
 
-            {/* 3사 가격 비교 */}
-            {result.compare_result?.results?.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm text-gray-500">3사 가격 비교</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {result.compare_result.results.map((r, i) => (
-                    <div
-                      key={i}
-                      className={`flex items-center justify-between text-sm border rounded px-3 py-2 ${
-                        r.provider === result.recommended_provider && r.instance_type === result.recommended_instance
-                          ? "border-green-300 bg-green-50"
-                          : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline">{r.provider}</Badge>
-                        <span>{r.instance_type}</span>
-                        <span className="text-xs text-gray-400">{r.region_normalized}</span>
-                      </div>
-                      <span className="font-medium">${r.price_per_month.toFixed(2)}/월</span>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-gray-100 rounded-2xl px-4 py-3 text-sm text-gray-400">
+                분석 중...
+              </div>
+            </div>
+          )}
+
+          {/* AWS 키 등록 CTA */}
+          {showCta && !loading && (
+            <div className="flex justify-start">
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl px-4 py-3 text-sm space-y-2 max-w-[80%]">
+                <p className="text-blue-800 font-medium">
+                  AWS 키를 등록하면 실계정 기반 정밀 분석이 가능합니다.
+                </p>
+                <Button size="sm" onClick={() => router.push("/credentials")}>
+                  AWS 키 등록하기
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div ref={bottomRef} />
+        </div>
+
+        {/* 입력 영역 */}
+        <div className="flex gap-2 py-4 border-t">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder="서비스를 설명해주세요..."
+            className="flex-1 border rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={loading}
+          />
+          <Button onClick={() => handleSend()} disabled={loading || !input.trim()}>
+            전송
+          </Button>
+        </div>
       </main>
     </>
   );

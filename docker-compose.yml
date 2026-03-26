@@ -63,7 +63,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  prefect:
+  prefect: # 백그라운드 작업
     image: prefecthq/prefect:3-latest
     container_name: costs_prefect
     command: prefect server start --host 0.0.0.0

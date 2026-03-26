@@ -460,3 +460,72 @@ def _get_with_retry(url, max_retries=3):
 ```
 
 **현재 상태:** 미적용
+
+---
+
+## #014: 컨설팅 채팅 — Gemini 스펙 추정에서 비표준 vcpu 반환
+
+**발견 시점:** 2026-03 (feature/consult-chat-integration 테스트 중)
+
+**문제:**
+"실시간 채팅 + 게시판 500명" 입력 시 Gemini가 `vcpu=3`을 반환.
+3vcpu 인스턴스는 존재하지 않아 `compare_by_spec()` DB 매칭 실패 → `compare_section` 비어있음
+→ Gemini가 제약 없이 Lambda/AppSync/DynamoDB 등 범위 밖 아키텍처를 추천.
+
+**원인:**
+spec 추정 프롬프트에 "실시간 채팅 포함 시 vcpu +1" 규칙이 기본 2vcpu에 1을 더해 3을 반환.
+표준 vcpu 값(1,2,4,8,16...) 제약이 없었음.
+
+**해결:**
+1. `_build_consult_spec_prompt`에 표준 vcpu/memory 제약 추가
+   - "vcpu는 반드시 1, 2, 4, 8, 16, 32, 64 중 하나"
+   - "실시간 채팅 포함 시 한 단계 위 스펙으로 올림 (vcpu +1 금지)"
+2. `compare_section`이 비어있고 첫 메시지일 때 `_build_system_context`가 `None` 반환
+3. `consult_chat()`에서 `None` 감지 시 Gemini 호출 없이 고정 메시지 반환
+
+---
+
+## #015: 컨설팅 채팅 — Gemini가 system_context 프롬프트 제약 무시
+
+**발견 시점:** 2026-03 (feature/consult-chat-integration 테스트 중)
+
+**문제:**
+스토리지 비용 언급 금지, 이모지 금지, 섹션 제목 금지, 응답 길이 제한 등 프롬프트 제약을 Gemini가 반복적으로 무시.
+
+**1차 해결 — system_instruction 분리:**
+`generate_consult_chat()`에서 `system_context`를 유저 메시지에 합치지 않고
+`genai.GenerativeModel("gemini-2.5-flash", system_instruction=system_context)`로 전달.
+→ system_instruction은 유저 메시지보다 높은 우선순위로 처리됨
+
+**2차 해결 — 키워드 블랙리스트 후처리:**
+그래도 스토리지 비용 언급, 이모지가 계속 뚫려 `_postprocess_reply()` 후처리 추가.
+이모지 제거(unicodedata.category), 마크다운 제목 제거, 스토리지 키워드 필터링.
+
+→ **근본 한계 발견:** 키워드 블랙리스트는 두더지 잡기. Gemini가 매번 다른 표현으로 우회.
+  근본 원인은 스토리지가 프롬프트 입력 데이터에 포함되어 있어 LLM 입장에서 설명하는 게 자연스러운 흐름이었음.
+
+**3차 해결 (최종) — JSON 구조화 응답 + 입력 데이터에서 스토리지 제거:**
+1. `generate_consult_spec_prompt`에서 `storage_gb` 추정 제거
+2. Gemini에 넘기는 spec context에서 `storage_gb` 키 제외
+3. `generate_consult_chat()`을 JSON 구조화 응답으로 전환 (`spec_summary`, `price_comparison`, `architecture_tips`)
+4. `consult_chat()`에서 JSON 필드만 꺼내서 조합 → 스토리지가 구조적으로 끼어들 여지 없음
+5. `_postprocess_reply()` 제거
+
+**배운 점:**
+LLM에게 "이 말 하지 마"를 프롬프트로 강제하는 것은 불안정.
+근본 해결은 "언급할 데이터 자체를 입력에서 제거" + "구조화된 응답으로 출력 제어".
+자유 텍스트 → 구조화 JSON 전환이 LLM 응답 제어의 가장 확실한 방법.
+
+---
+
+## #016: 컨설팅 채팅 — 프론트 마크다운 미렌더링
+
+**발견 시점:** 2026-03 (feature/consult-chat-integration 테스트 중)
+
+**문제:**
+Gemini 응답에 `###`, `---`, `*` 등 마크다운 기호가 그대로 노출.
+`whitespace-pre-wrap` CSS만 적용되어 있어 마크다운 파싱 없음.
+
+**해결:**
+`react-markdown` 라이브러리 설치 후 AI 응답 버블에만 적용.
+유저 메시지는 일반 텍스트, AI 응답은 `<ReactMarkdown>` 컴포넌트로 렌더링.

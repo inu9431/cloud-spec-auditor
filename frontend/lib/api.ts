@@ -68,6 +68,11 @@ export const recommendations = {
       method: "POST",
       body: JSON.stringify({ description }),
     }),
+  consultChat: (message: string, history: { role: string; parts: string[] }[]) =>
+    request<ConsultChatResult>("/api/recommendations/consult/chat/", {
+      method: "POST",
+      body: JSON.stringify({ message, history }),
+    }),
 };
 
 // Credentials
@@ -144,6 +149,12 @@ export interface ConsultResult {
   recommended_instance: string;
   reason: string;
   architecture_tips: string;
+}
+
+export interface ConsultChatResult {
+  reply: string;
+  user_state: "NOT_REGISTERED" | "REGISTERED_NO_DATA" | "REGISTERED_WITH_DATA";
+  show_register_cta: boolean;
 }
 
 export interface Credential {
