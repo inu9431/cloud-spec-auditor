@@ -41,7 +41,9 @@ class ConsultService:
         # 3단계: 비교 결과 → 유저 설명 생성 (Gemini)
         spec_for_gemini = {k: v for k, v in spec.items() if k != "storage_gb"}
         try:
-            explanation = gemini.generate_consult_explain(description, spec_for_gemini, compare_result)
+            explanation = gemini.generate_consult_explain(
+                description, spec_for_gemini, compare_result
+            )
         except GeminiAPIError:
             cheapest = compare_result["results"][0]
             explanation = {
@@ -104,9 +106,7 @@ class ConsultService:
             "show_register_cta": user_state == "NOT_REGISTERED",
         }
 
-    def _build_system_context(
-        self, user_message: str, history: list, user_state: str, user
-    ) -> str:
+    def _build_system_context(self, user_message: str, history: list, user_state: str, user) -> str:
         base = """당신은 클라우드 비용 최적화 전문가입니다.
 타겟은 클라우드를 처음 접하는 개발자/메이커입니다. 기술 용어 대신 결과 중심 언어로 설명하세요.
 

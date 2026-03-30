@@ -13,4 +13,3 @@ urlpatterns = [
     path("sync/gcp/", GCPPriceSyncView.as_view(), name="sync-gcp-prices"),
     path("instance-compare/", InstanceCompareView.as_view(), name="instance-compare"),
 ]
-

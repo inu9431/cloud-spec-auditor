@@ -45,13 +45,15 @@ class ConsultView(APIView):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
         return Response(result, status=status.HTTP_200_OK)
 
+
 class ConsultChatView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
         serializer = ConsultChatRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        result =ConsultService().consult_chat(
+        result = ConsultService().consult_chat(
             user_message=serializer.validated_data["message"],
             history=serializer.validated_data["history"],
             user=request.user,

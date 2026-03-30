@@ -186,9 +186,7 @@ memory_gb도 반드시 1, 2, 4, 8, 16, 32, 64, 128 중 하나여야 합니다.
                 "gemini-2.5-flash",
                 system_instruction=system_context,
             )
-            formatted_history = [
-                {"role": turn["role"], "parts": turn["parts"]} for turn in history
-            ]
+            formatted_history = [{"role": turn["role"], "parts": turn["parts"]} for turn in history]
             chat = model.start_chat(history=formatted_history)
             response = chat.send_message(user_message)
             return self._parse_json_response(response.text)
