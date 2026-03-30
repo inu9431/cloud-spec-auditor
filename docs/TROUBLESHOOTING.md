@@ -534,3 +534,36 @@ Gemini 응답에 `###`, `---`, `*` 등 마크다운 기호가 그대로 노출.
 AI 응답을 프론트에서 그냥 텍스트로 뿌리면 마크다운 기호가 그대로 노출됨.
 LLM 응답을 보여주는 UI는 처음부터 마크다운 렌더링을 전제하고 설계해야 함.
 유저 입력은 XSS 방지를 위해 일반 텍스트로 처리하고, AI 응답에만 적용하는 것이 원칙.
+
+
+## #017: PostgreSQL 인덱스 최적화 — 3사 스펙 비교 쿼리 성능 개선
+
+**발생 시점:** 2026-03-30 (feature/db-indexing-performance)
+
+**문제:**
+`compare_by_spec()` 쿼리(`vcpu + memory_gb + pricing_model + is_active + region_normalized` 5개 필터)에서
+`CloudService` 테이블 인덱스가 `[vcpu, memory_gb]`와 `[region_normalized]`로 **분리**되어 있어
+옵티마이저가 두 인덱스를 따로 탐색하거나 Seq Scan으로 빠질 가능성이 있었음.
+
+**원인 분석:**
+단일 컬럼 / 단순 2컬럼 인덱스는 복합 필터 쿼리에서 Index Merge 또는 Seq Scan으로 처리됨.
+실제 서비스 핵심 쿼리(`instance-compare API`, 컨설팅 채팅 스펙 조회)가 이 패턴.
+
+**해결:**
+`CloudService.Meta.indexes`에서 기존 `[vcpu, memory_gb]`, `[region_normalized]`, `[pricing_model]` 제거 →
+`[vcpu, memory_gb, region_normalized, pricing_model]` 복합 인덱스로 통합.
+
+추가로 `RawEC2/GCP/AzureSnapshot`에 `[credential_id, fetched_at]` 복합 인덱스 추가 (파이프라인 최신 스냅샷 조회용).
+
+**EXPLAIN ANALYZE 수치 (2026-03-30, Docker Compose 로컬, cloud_services 약 10,000행)**
+
+| 쿼리 | 스캔 방식 | Execution Time |
+|---|---|---|
+| 3사 스펙 비교 (vcpu=4, memory_gb=16, region=KR, ON_DEMAND) | Index Scan (`cloud_servi_vcpu_cbad0a_idx`) | **0.317ms** |
+| 유저 인벤토리 조회 (user_id=1, is_active=true) | Index Scan (`user_inventories_user_id_7493e073`) | **0.095ms** |
+| Raw EC2 최신 스냅샷 조회 (credential_id=1, ORDER BY fetched_at DESC) | Index Scan Backward (`raw_ec2_sna_credent_1997dc_idx`) | **0.046ms** |
+
+**배운 점:**
+복합 필터 쿼리에서는 필터 컬럼 순서대로 복합 인덱스를 구성해야 옵티마이저가 단일 인덱스로 처리 가능.
+선택도(selectivity)가 높은 컬럼(vcpu, memory_gb)을 앞에 배치하는 것이 원칙.
+인덱스 추가 후 반드시 `EXPLAIN ANALYZE`로 실제 사용 여부 확인 필요 — 옵티마이저가 항상 새 인덱스를 선택한다는 보장 없음.
