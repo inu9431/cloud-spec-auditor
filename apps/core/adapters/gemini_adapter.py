@@ -115,14 +115,16 @@ class GeminiAdapter:
 {description}
 
 [스펙 추정 기준]
-- 정적 웹사이트/랜딩페이지: vcpu=1, memory_gb=1, storage_gb=20
-- 소규모 서비스 (동시접속 100명 이하): vcpu=2, memory_gb=2, storage_gb=30
-- 쇼핑몰/커머스 (동시접속 1,000명): vcpu=2, memory_gb=4, storage_gb=50
-- 중규모 서비스 (동시접속 1,000~5,000명): vcpu=4, memory_gb=8, storage_gb=100
-- 대규모 서비스 (동시접속 5,000명 이상): vcpu=8, memory_gb=16, storage_gb=200
-- 이미지/동영상 많은 서비스: storage_gb 2배 추가
-- 실시간 채팅/알림 포함: vcpu 1 추가
+- 정적 웹사이트/랜딩페이지: vcpu=1, memory_gb=1
+- 소규모 서비스 (동시접속 100명 이하): vcpu=2, memory_gb=2
+- 쇼핑몰/커머스 (동시접속 1,000명): vcpu=2, memory_gb=4
+- 중규모 서비스 (동시접속 1,000~5,000명): vcpu=4, memory_gb=8
+- 대규모 서비스 (동시접속 5,000명 이상): vcpu=8, memory_gb=16
+- 실시간 채팅/알림 포함: 한 단계 위 스펙으로 올림 (소규모→쇼핑몰 스펙, 쇼핑몰→중규모 스펙)
 - AI/ML 기능 포함: vcpu 4 이상, memory_gb 8 이상
+
+[중요] vcpu는 반드시 1, 2, 4, 8, 16, 32, 64 중 하나여야 합니다. 3, 5, 6 같은 값은 존재하지 않습니다.
+memory_gb도 반드시 1, 2, 4, 8, 16, 32, 64, 128 중 하나여야 합니다.
 
 [리전 추정 기준]
 - 한국 서비스/한국 유저 타겟: KR
@@ -136,7 +138,6 @@ class GeminiAdapter:
 {{
     "vcpu": 숫자,
     "memory_gb": 숫자,
-    "storage_gb": 숫자,
     "region": "KR 또는 JP 또는 US_EAST 또는 SG 또는 EU_WEST 중 하나",
     "reason": "스펙 및 리전 추정 근거 (1-2문장)"
 }}
@@ -157,7 +158,6 @@ class GeminiAdapter:
 [추정된 서버 스펙]
 - vCPU: {spec['vcpu']}코어
 - 메모리: {spec['memory_gb']}GB
-- 스토리지: {spec['storage_gb']}GB
 - 추정 리전: {spec['region']}
 - 추정 근거: {spec['reason']}
 
@@ -173,3 +173,24 @@ class GeminiAdapter:
     "architecture_tips": "추가 아키텍처 제안 (CDN, 오토스케일링 등, 1-2문장)"
 }}
 """
+
+    def generate_consult_chat(
+        self,
+        user_message: str,
+        history: list,
+        system_context: str,  # user_state별 시스템 지침
+    ) -> Dict:
+        """멀티턴 컨설팅 채팅 — JSON 구조화 응답으로 반환"""
+        try:
+            model = genai.GenerativeModel(
+                "gemini-2.5-flash",
+                system_instruction=system_context,
+            )
+            formatted_history = [{"role": turn["role"], "parts": turn["parts"]} for turn in history]
+            chat = model.start_chat(history=formatted_history)
+            response = chat.send_message(user_message)
+            return self._parse_json_response(response.text)
+        except GeminiAPIError:
+            raise
+        except Exception as e:
+            raise GeminiAPIError(f"채팅 응답 생성 실패: {str(e)}")

@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.core.throttles import AuditThrottle
-from apps.recommendations.serializers import AuditRequestSerializer
+from apps.recommendations.serializers import AuditRequestSerializer, ConsultChatRequestSerializer
 from apps.recommendations.services.audit_service import AuditService
 from apps.recommendations.services.consult_service import ConsultService
 
@@ -42,5 +42,22 @@ class ConsultView(APIView):
         result = ConsultService().consult(description)
 
         if "error" in result and "estimated_spec" not in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class ConsultChatView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = ConsultChatRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = ConsultService().consult_chat(
+            user_message=serializer.validated_data["message"],
+            history=serializer.validated_data["history"],
+            user=request.user,
+        )
+        if "error" in result:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
         return Response(result, status=status.HTTP_200_OK)
