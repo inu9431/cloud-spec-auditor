@@ -21,7 +21,10 @@ class RawEC2Snapshot(RawSnapshotBase):
 
     class Meta:
         db_table = "raw_ec2_snapshots"
-        indexes = [models.Index(fields=["user", "fetched_at"])]
+        indexes = [
+            models.Index(fields=["user", "fetched_at"]),
+            models.Index(fields=["credential_id", "fetched_at"]),
+        ]
 
 
 class RawPriceSnapshot(RawSnapshotBase):
@@ -40,7 +43,10 @@ class RawGCPSnapshot(RawSnapshotBase):
 
     class Meta:
         db_table = "raw_gcp_snapshots"
-        indexes = [models.Index(fields=["user", "fetched_at"])]
+        indexes = [
+            models.Index(fields=["user", "fetched_at"]),
+            models.Index(fields=["credential_id", "fetched_at"]),
+        ]
 
 
 class RawAzureSnapshot(RawSnapshotBase):
@@ -50,4 +56,7 @@ class RawAzureSnapshot(RawSnapshotBase):
 
     class Meta:
         db_table = "raw_azure_snapshots"
-        indexes = [models.Index(fields=["user", "fetched_at"])]
+        indexes = [
+            models.Index(fields=["user", "fetched_at"]),
+            models.Index(fields=["credential_id", "fetched_at"]),
+        ]

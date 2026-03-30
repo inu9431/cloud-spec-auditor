@@ -59,10 +59,10 @@ class CloudService(BaseModel):
     class Meta:
         db_table = "cloud_services"
         indexes = [
+            # instance_type 단건 조회
             models.Index(fields=["provider", "instance_type"]),
-            models.Index(fields=["vcpu", "memory_gb"]),
-            models.Index(fields=["region_normalized"]),
-            models.Index(fields=["pricing_model"]),
+            # 3사 스펙 비교 쿼리: vcpu + memory_db, region_normalized, pricing_model 복합 필터
+            models.Index(fields=["vcpu", "memory_gb", "region_normalized", "pricing_model"]),
         ]
         constraints = [
             models.UniqueConstraint(

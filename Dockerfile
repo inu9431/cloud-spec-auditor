@@ -39,5 +39,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/admin/ || exit 1
 
 # 실행 명령
-CMD ["uv", "run", "gunicorn", "costcut.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
+ENV PATH="/app/.venv/bin:$PATH"
+CMD ["gunicorn", "costcut.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "4"]
 
