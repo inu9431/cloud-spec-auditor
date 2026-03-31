@@ -18,11 +18,23 @@ class AuditService:
             return {"error": "인벤토리를 찾을수 없습니다"}
 
         # 같은 스펙 3사 비교
-        compare_result = InstanceCompareService().compare_by_spec(
-            vcpu=inventory.vcpu,
-            memory_gb=inventory.memory_gb,
-            region_normalized=inventory.region_normalized,
-        )
+        if inventory.cpu_usage_avg is not None and inventory.cpu_usage_avg < 30:
+            analysis_type = "RIGHTSIZING"
+            target_vcpu = max(1, inventory.vcpu // 2)
+            target_memory = Decimal(str(float(inventory.memory_gb) / 2))
+            compare_result = InstanceCompareService().compare_by_spec(
+                vcpu = target_vcpu,
+                memory_gb = target_memory,
+                region_normalized = inventory.region_normalized
+            )
+        else:
+            analysis_type = "SWITCH_PROVIDER"
+            compare_result = InstanceCompareService().compare_by_spec(
+                vcpu = inventory.vcpu,
+                memory_gb = inventory.memory_gb,
+                region_normalized = inventory.region_normalized
+            )
+
         if "error" in compare_result:
             return compare_result
 
@@ -52,12 +64,12 @@ class AuditService:
         # Gemini 호출 — 실패 시 fallback 메시지로 대체
         try:
             ai_result = GeminiAdapter().generate_audit(
-                inventory_data, compare_result, saving_amount
+                inventory_data, compare_result, saving_amount, analysis_type
             )
         except GeminiAPIError:
             ai_result = {
                 "diagnosis": f"CPU 사용률 {inventory_data['cpu_usage_avg']}% 기준 과스펙이 감지되었습니다.",
-                "recommendation_type": "SWITCH_PROVIDER",
+                "recommendation_type": "analysis_type",
                 "recommended_provider": best_alternative["provider"],
                 "recommended_instance": best_alternative["instance_type"],
                 "reason": f"월 ${saving_amount:.2f} USD 절감 가능. On-Demand 기준이며 Reserved/Spot 적용 시 추가 절감 가능합니다.",
@@ -85,7 +97,7 @@ class AuditService:
             RecommendationItem.objects.create(
                 recommendation=recommendation,
                 recommended_service=cloud_service,
-                recommendation_type=ai_result.get("recommendation_type", "SWITCH_PROVIDER"),
+                recommendation_type=ai_result.get("recommendation_type", analysis_type),
                 original_provider=inventory.provider,
                 original_instance_type=inventory.instance_type,
                 original_monthly_cost=current_cost,

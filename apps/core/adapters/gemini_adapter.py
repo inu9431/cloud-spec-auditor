@@ -15,10 +15,11 @@ class GeminiAdapter:
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def generate_audit(
-        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+        self, inventory_data: Dict, compare_result: Dict, saving_amount: float,
+        analysis_type: str = "SWITCH_PROVIDER"
     ) -> Dict:
         try:
-            prompt = self._build_audit_prompt(inventory_data, compare_result, saving_amount)
+            prompt = self._build_audit_prompt(inventory_data, compare_result, saving_amount, analysis_type)
             response = self.model.generate_content(prompt)
             return self._parse_json_response(response.text)
         except GeminiAPIError:
@@ -27,17 +28,25 @@ class GeminiAdapter:
             raise GeminiAPIError(f"Gemini API 호출 실패: {str(e)}")
 
     def _build_audit_prompt(
-        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+        self, inventory_data: Dict, compare_result: Dict, saving_amount: float,
+        analysis_type: str = "SWITCH_PROVIDER"
     ) -> str:
         """Structured Output을 위한 프롬프트 엔지니어링"""
         cpu_usage = inventory_data.get("cpu_usage_avg")
 
-        if cpu_usage is not None:
+        if analysis_type == "RIGHTSIZING":
             usage_section = f"CPU 평균 사용률: {cpu_usage}% (AWS Compute Optimizer 분석 기준)"
-            analysis_note = "CPU 사용률 데이터를 기반으로 과스펙 여부를 판단하세요."
+            analysis_note = (
+                f"CPU 사용률 {cpu_usage}%로 과스펙 감지. "
+                "비교 데이터는 현재보다 작은 스펙 기준입니다. 다운사이징을 권고하세요. "
+                "recommendation_type은 반드시 RIGHTSIZING으로 설정하세요."
+            )
         else:
-            usage_section = "CPU 사용률: 데이터 없음 (Compute Optimizer 미활성화 상태)"
-            analysis_note = "사용률 데이터가 없으므로 과스펙 판단은 하지 말고, 3사 가격 비교 기반의 provider 전환 절감만 제시하세요."
+            usage_section = f"CPU 평균 사용률: {cpu_usage}%" if cpu_usage else "CPU 사용률: 데이터 없음 (Compute Optimizer 미활성화 상태)"
+            analysis_note = (
+                "동일 스펙 기준 3사 가격 비교로 provider 전환 절감을 제시하세요. "
+                "recommendation_type은 반드시 SWITCH_PROVIDER로 설정하세요."
+            )
 
         return f"""
   당신은 클라우드 비용 최적화 전문가입니다.
