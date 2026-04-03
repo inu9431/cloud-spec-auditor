@@ -93,6 +93,8 @@ class AuditService:
                 instance_type=option["instance_type"],
                 region_normalized=option["region_normalized"],
             ).first()
+            if cloud_service is None:
+                continue
             expected_cost = Decimal(str(option["price_per_month"]))
             RecommendationItem.objects.create(
                 recommendation=recommendation,
