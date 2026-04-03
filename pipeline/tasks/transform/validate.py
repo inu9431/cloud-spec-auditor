@@ -11,6 +11,7 @@ def validate_inventory(dtos: list[EC2InventoryDTO]) -> list[EC2InventoryDTO]:
         if not dto.resource_id:
             logger.warning("validate skip: resource_id 없음")
             continue
+        dto.instance_type = dto.instance_type.strip() if dto.instance_type else dto.instance_type
         if not dto.instance_type:
             logger.warning("validate skip: instance_type 없음 resource_id=%s", dto.resource_id)
             continue
@@ -24,6 +25,13 @@ def validate_inventory(dtos: list[EC2InventoryDTO]) -> list[EC2InventoryDTO]:
                 "validate skip: memory_gb 비정상 resource_id=%s memory_gb=%s",
                 dto.resource_id,
                 dto.memory_gb,
+            )
+            continue
+        if dto.current_monthly_cost < 0:
+            logger.warning(
+                "validate skip: 음수 비용 resource_id=%s cost=%s",
+                dto.resource_id,
+                dto.current_monthly_cost,
             )
             continue
         if dto.current_monthly_cost > 10000:
