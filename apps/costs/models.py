@@ -2,7 +2,7 @@ from django.db import models
 
 from apps.core.choices import NormalizedRegion, Provider
 from apps.core.models import BaseModel
-from apps.costs.choices import CpuArch, ConfidenceLevel, PricingModel, PricingSource
+from apps.costs.choices import ConfidenceLevel, CpuArch, PricingModel, PricingSource
 
 
 class CloudService(BaseModel):
