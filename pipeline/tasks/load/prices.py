@@ -14,17 +14,25 @@ def validate_prices(dtos: list[CloudServiceDTO]) -> list[CloudServiceDTO]:
     valid = []
     for dto in dtos:
         if dto.price_per_hour <= 0:
-            logger.warning("가격 0 이하 skip: %s %s", dto.provider, dto.instance_type)
+            logger.warning(
+                "[BILLING_EVENT] type=price_invalid reason=zero_or_negative provider=%s instance=%s",
+                dto.provider,
+                dto.instance_type,
+            )
             continue
         if dto.price_per_hour > 100:
             logger.warning(
-                "비현실적 가격 skip: %s %s price=%s",
+                "[BILLING_EVENT] type=price_invalid reason=unrealistic provider=%s instance=%s price=%s",
                 dto.provider,
                 dto.instance_type,
                 dto.price_per_hour,
             )
             continue
         valid.append(dto)
+
+    skipped = len(dtos) - len(valid)
+    if skipped:
+        logger.warning("[BILLING_EVENT] type=validate_summary skipped=%d total=%d", skipped, len(dtos))
     return valid
 
 
@@ -45,11 +53,13 @@ def load_prices(dtos: list[CloudServiceDTO]) -> int:
                 "price_per_hour": dto.price_per_hour,
                 "pricing_source": dto.pricing_source,
                 "currency": dto.currency,
+                "cpu_arch": dto.cpu_arch,
+                "is_burstable": dto.is_burstable,
                 "confidence_level": "HIGH",
                 "is_active": True,
                 "last_verified_at": timezone.now().date(),
             },
         )
         count += 1
-    logger.info("price 적재 완료: %d건", count)
+    logger.info("[BILLING_EVENT] type=load_done count=%d", count)
     return count

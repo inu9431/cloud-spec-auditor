@@ -68,9 +68,9 @@ def load_inventory(user, dtos: list[EC2InventoryDTO]) -> list[UserInventory]:
 
     if to_create:
         UserInventory.objects.bulk_create(to_create)
-        logger.info("inventory 생성: user=%s count=%d", user.id, len(to_create))
+        logger.info("[INVENTORY_EVENT] type=bulk_create user=%s count=%d", user.id, len(to_create))
     if to_update:
         UserInventory.objects.bulk_update(to_update, fields=update_fields)
-        logger.info("inventory 갱신: user=%s count=%d", user.id, len(to_update))
+        logger.info("[INVENTORY_EVENT] type=bulk_update user=%s count=%d", user.id, len(to_update))
 
     return list(existing.values()) + to_create
