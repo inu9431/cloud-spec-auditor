@@ -5,12 +5,12 @@ from decimal import Decimal
 from django.core.cache import cache
 from django.utils import timezone
 
-from prefect import task
+from prefect import get_run_logger, task
 
 from apps.core.adapters.aws_adapter import AWSAdapter
 from apps.users.models import CloudCredential
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 CACHE_TTL_EC2 = 60 * 60
 CACHE_TTL_OPTIMIZER = 60 * 60 * 12
@@ -26,9 +26,11 @@ def _build_adapter(credential: CloudCredential) -> AWSAdapter:
 
 @task(retries=3, retry_delay_seconds=60)
 def extract_ec2_instances(credential: CloudCredential) -> dict:
+    logger = get_run_logger()
     key = f"ec2_instances:{credential.user_id}"
     cached = cache.get(key)
     if cached:
+        logger.info("[EXTRACT_EVENT] type=cache_hit provider=AWS user=%s", credential.user_id)
         return cached
 
     adapter = _build_adapter(credential)
@@ -62,6 +64,7 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
 
     result = {"instances": instances, "fetched_at": timezone.now().isoformat()}
     cache.set(key, result, CACHE_TTL_EC2)
+    logger.info("[EXTRACT_EVENT] type=done provider=AWS user=%s count=%d", credential.user_id, len(instances))
     return result
 
 
@@ -80,10 +83,10 @@ def extract_instance_specs(credential: CloudCredential, instance_type: str) -> d
             "memory_gb": Decimal(str(info["MemoryInfo"]["SizeInMiB"])) / 1024,
         }
     except Exception as e:
-        logger.warning("인스턴스 스펙 조회 실패: instance_type=%s error=%s", instance_type, str(e))
+        _logger.warning("[EXTRACT_EVENT] type=spec_fail instance_type=%s error=%s", instance_type, str(e))
         result = {"vcpu": 0, "memory_gb": Decimal("0")}
 
-    cache.set(key, result, 60 * 60 * 24 * 7)  # 7일 (스펙은 거의 안 바뀜)
+    cache.set(key, result, 60 * 60 * 24 * 7)
     return result
 
 
@@ -94,7 +97,7 @@ def extract_rightsizing(credential: CloudCredential, instance_id: str) -> dict:
         return cached
 
     adapter = _build_adapter(credential)
-    result = adapter.get_rightsizing_recommendations(instance_id)  # raw dict
+    result = adapter.get_rightsizing_recommendations(instance_id)
     result["fetched_at"] = timezone.now()
     cache.set(key, result, CACHE_TTL_OPTIMIZER)
     return result
