@@ -203,4 +203,16 @@ class CloudCredentialTestView(APIView):
         credential.verification_error = None if all_required_ok else str(results)
         credential.save(update_fields=["is_verified", "last_verified_at", "verification_error"])
 
-        return Response(results, status=status.HTTP_200_OK)
+        compute_optimizer_active = results.get("compute_optimizer") == "OK"
+        return Response(
+            {
+                **results,
+                "compute_optimizer_active": compute_optimizer_active,
+                "compute_optimizer_note": (
+                    None
+                    if compute_optimizer_active
+                    else "Compute Optimizer가 비활성화 상태입니다. AWS 콘솔에서 활성화하면 14일 후 CPU 기반 정밀 분석이 가능합니다."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )

@@ -23,7 +23,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 # Python 의존성 설치
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --python /usr/local/bin/python3
 
 # 프로젝트 파일 복사
 COPY . .

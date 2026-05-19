@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from apps.costs.models import CloudService
 
+ALL_PROVIDERS = {"AWS", "GCP", "AZURE"}
+
 
 class InstanceCompareService:
 
@@ -41,11 +43,16 @@ class InstanceCompareService:
                 "region_normalized": i.region_normalized,
                 "vcpu": i.vcpu,
                 "memory_gb": float(i.memory_gb),
+                "cpu_arch": i.cpu_arch,
+                "is_burstable": i.is_burstable,
                 "price_per_hour": float(i.price_per_hour),
                 "price_per_month": float(i.price_per_month),
             }
             for i in instances
         ]
+
+        present_providers = {r["provider"] for r in results}
+        missing_providers = sorted(ALL_PROVIDERS - present_providers)
 
         cheapest = results[0]
         most_expensive = results[-1]
@@ -55,6 +62,7 @@ class InstanceCompareService:
             "spec": {"vcpu": vcpu, "memory_gb": float(memory_gb)},
             "region_normalized": region_normalized,
             "results": results,
+            "missing_providers": missing_providers,
             "summary": {
                 "cheapest": cheapest["provider"] + " " + cheapest["instance_type"],
                 "max_monthly_savings": round(max_savings, 2),

@@ -15,10 +15,16 @@ class GeminiAdapter:
         self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def generate_audit(
-        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+        self,
+        inventory_data: Dict,
+        compare_result: Dict,
+        saving_amount: float,
+        analysis_type: str = "SWITCH_PROVIDER",
     ) -> Dict:
         try:
-            prompt = self._build_audit_prompt(inventory_data, compare_result, saving_amount)
+            prompt = self._build_audit_prompt(
+                inventory_data, compare_result, saving_amount, analysis_type
+            )
             response = self.model.generate_content(prompt)
             return self._parse_json_response(response.text)
         except GeminiAPIError:
@@ -27,17 +33,40 @@ class GeminiAdapter:
             raise GeminiAPIError(f"Gemini API 호출 실패: {str(e)}")
 
     def _build_audit_prompt(
-        self, inventory_data: Dict, compare_result: Dict, saving_amount: float
+        self,
+        inventory_data: Dict,
+        compare_result: Dict,
+        saving_amount: float,
+        analysis_type: str = "SWITCH_PROVIDER",
     ) -> str:
-        """Structured Output을 위한 프롬프트 엔지니어링"""
         cpu_usage = inventory_data.get("cpu_usage_avg")
+        missing = compare_result.get("missing_providers", [])
+        missing_note = (
+            f"\n  ※ 데이터 미수집 provider: {', '.join(missing)} (해당 provider 가격 비교 불가)\n"
+            if missing
+            else ""
+        )
 
-        if cpu_usage is not None:
+        if analysis_type == "RIGHTSIZING":
             usage_section = f"CPU 평균 사용률: {cpu_usage}% (AWS Compute Optimizer 분석 기준)"
-            analysis_note = "CPU 사용률 데이터를 기반으로 과스펙 여부를 판단하세요."
+            analysis_note = (
+                f"CPU 사용률이 {cpu_usage}%로 낮습니다. "
+                "현재 스펙의 절반(다운사이징) 후보를 비교 결과에서 찾아 라이트사이징을 추천하세요. "
+                "recommendation_type은 RIGHTSIZING으로 고정하세요."
+            )
+        elif cpu_usage is not None:
+            usage_section = f"CPU 평균 사용률: {cpu_usage}% (AWS Compute Optimizer 분석 기준)"
+            analysis_note = (
+                "CPU 사용률이 충분하므로 다운사이징보다 동일 스펙 기준 최저가 provider 전환을 추천하세요. "
+                "recommendation_type은 SWITCH_PROVIDER로 고정하세요."
+            )
         else:
             usage_section = "CPU 사용률: 데이터 없음 (Compute Optimizer 미활성화 상태)"
-            analysis_note = "사용률 데이터가 없으므로 과스펙 판단은 하지 말고, 3사 가격 비교 기반의 provider 전환 절감만 제시하세요."
+            analysis_note = (
+                "사용률 데이터가 없으므로 과스펙 판단은 하지 말고, "
+                "3사 가격 비교 기반의 provider 전환 절감만 제시하세요. "
+                "recommendation_type은 SWITCH_PROVIDER로 고정하세요."
+            )
 
         return f"""
   당신은 클라우드 비용 최적화 전문가입니다.
@@ -52,13 +81,13 @@ class GeminiAdapter:
   [분석 지침]
   {analysis_note}
 
-  [3사 가격 비교]
+  [3사 가격 비교]{missing_note}
   {json.dumps(compare_result, ensure_ascii=False, indent=2)}
 
   [Python이 계산한 예상 월 절감액]
   ${saving_amount:.2f} USD
 
-  ※ 주의: 위 가격 비교는 On-Demand 기준입니다.
+  ※ 위 가격 비교는 On-Demand 기준입니다.
   Reserved(1년 약 40% 절감) 또는 Spot(약 70% 절감, 중단 가능) 적용 시
   실제 절감폭은 더 커질 수 있습니다. 추천 이유에 이 점을 언급하세요.
 

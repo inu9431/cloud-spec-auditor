@@ -1,6 +1,11 @@
 from django.db import models
 
 
+class CpuArch(models.TextChoices):
+    X86_64 = "x86_64", "x86_64"
+    ARM64 = "arm64", "arm64"
+
+
 class PricingModel(models.TextChoices):
     """가격 모델"""
 
