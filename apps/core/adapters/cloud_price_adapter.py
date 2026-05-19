@@ -33,6 +33,12 @@ GCP_MACHINE_SPECS: dict[str, dict] = {
     "n2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
     "n2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
     "n2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # N2D (AMD EPYC) — N2와 동일 스펙, AWS m6a 비교 대상
+    "n2d-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "n2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "n2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "n2d-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "n2d-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
     # E2
     "e2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
     "e2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
@@ -45,6 +51,26 @@ GCP_MACHINE_SPECS: dict[str, dict] = {
     "c2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
     "c2-standard-30": {"vcpu": 30, "memory_gb": Decimal("120")},
     "c2-standard-60": {"vcpu": 60, "memory_gb": Decimal("240")},
+    # C2D (AMD EPYC) — AWS c6a 비교 대상
+    "c2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "c2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "c2d-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "c2d-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # M1 (memory-optimized) — AWS r 시리즈 비교 대상
+    "m1-standard-4": {"vcpu": 4, "memory_gb": Decimal("26")},
+    "m1-standard-8": {"vcpu": 8, "memory_gb": Decimal("52")},
+    "m1-standard-16": {"vcpu": 16, "memory_gb": Decimal("104")},
+    "m1-standard-32": {"vcpu": 32, "memory_gb": Decimal("208")},
+    # T2D (AMD, scale-out) — AWS t3a 비교 대상
+    "t2d-standard-1": {"vcpu": 1, "memory_gb": Decimal("4")},
+    "t2d-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "t2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "t2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    # T2A (ARM Ampere Altra) — AWS t4g 비교 대상
+    "t2a-standard-1": {"vcpu": 1, "memory_gb": Decimal("4")},
+    "t2a-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "t2a-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "t2a-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
 }
 
 # GCP SKU description에서 머신 패밀리를 식별하는 매핑
@@ -53,10 +79,20 @@ GCP_SKU_FAMILY_MAP: dict[str, str] = {
     "N1 Predefined Instance Ram": "n1",
     "N2 Instance Core": "n2",
     "N2 Instance Ram": "n2",
+    "N2D AMD Instance Core": "n2d",
+    "N2D AMD Instance Ram": "n2d",
     "E2 Instance Core": "e2",
     "E2 Instance Ram": "e2",
     "C2 Instance Core": "c2",
     "C2 Instance Ram": "c2",
+    "C2D AMD Instance Core": "c2d",
+    "C2D AMD Instance Ram": "c2d",
+    "Memory-optimized Instance Core": "m1",
+    "Memory-optimized Instance Ram": "m1",
+    "T2D AMD Instance Core": "t2d",
+    "T2D AMD Instance Ram": "t2d",
+    "T2A Arm Instance Core": "t2a",
+    "T2A Arm Instance Ram": "t2a",
 }
 
 

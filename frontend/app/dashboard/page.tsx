@@ -58,6 +58,12 @@ export default function DashboardPage() {
     (sum, inv) => sum + parseFloat(inv.current_monthly_cost || "0"),
     0
   );
+
+  // 인벤토리가 있는데 cpu_usage_avg가 전부 null → Compute Optimizer 미활성화 가능성
+  const showComputeOptimizerBanner =
+    inventories.length > 0 &&
+    inventories.every((inv) => !inv.cpu_usage_avg);
+
   if (loading) {
     return (
       <>
@@ -73,6 +79,28 @@ export default function DashboardPage() {
     <>
       <Navbar />
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+        {/* Compute Optimizer 미활성화 배너 */}
+        {showComputeOptimizerBanner && (
+          <div className="flex items-start gap-3 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-800">
+            <span className="mt-0.5 text-lg leading-none">⚠️</span>
+            <div>
+              <p className="font-semibold">CPU 사용률 데이터가 없습니다</p>
+              <p className="mt-0.5 text-yellow-700">
+                AWS Compute Optimizer가 비활성화 상태입니다. AWS 콘솔에서 활성화하면
+                14일 후 CPU 기반 정밀 과스펙 분석이 가능합니다.{" "}
+                <a
+                  href="https://console.aws.amazon.com/compute-optimizer"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline font-medium"
+                >
+                  AWS 콘솔 바로가기
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* 요약 카드 */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
