@@ -37,7 +37,11 @@ def _azure_is_burstable(instance_type: str) -> bool:
 
 
 def _gcp_cpu_arch(machine_type: str) -> str:
-    return CpuArch.ARM64 if any(machine_type.startswith(p) for p in _GCP_ARM_PREFIXES) else CpuArch.X86_64
+    return (
+        CpuArch.ARM64
+        if any(machine_type.startswith(p) for p in _GCP_ARM_PREFIXES)
+        else CpuArch.X86_64
+    )
 
 
 def _gcp_is_burstable(machine_type: str) -> bool:

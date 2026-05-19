@@ -32,7 +32,9 @@ def validate_prices(dtos: list[CloudServiceDTO]) -> list[CloudServiceDTO]:
 
     skipped = len(dtos) - len(valid)
     if skipped:
-        logger.warning("[BILLING_EVENT] type=validate_summary skipped=%d total=%d", skipped, len(dtos))
+        logger.warning(
+            "[BILLING_EVENT] type=validate_summary skipped=%d total=%d", skipped, len(dtos)
+        )
     return valid
 
 

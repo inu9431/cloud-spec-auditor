@@ -22,7 +22,9 @@ class GeminiAdapter:
         analysis_type: str = "SWITCH_PROVIDER",
     ) -> Dict:
         try:
-            prompt = self._build_audit_prompt(inventory_data, compare_result, saving_amount, analysis_type)
+            prompt = self._build_audit_prompt(
+                inventory_data, compare_result, saving_amount, analysis_type
+            )
             response = self.model.generate_content(prompt)
             return self._parse_json_response(response.text)
         except GeminiAPIError:

@@ -52,7 +52,8 @@ class AuditService:
         current_burstable = current_service.is_burstable if current_service else False
 
         alternatives = [
-            r for r in compare_result["results"]
+            r
+            for r in compare_result["results"]
             if r["provider"] != inventory.provider
             and r["cpu_arch"] == current_arch
             and r["is_burstable"] == current_burstable
@@ -61,8 +62,7 @@ class AuditService:
         # arch/burstable 조건 완화 fallback
         if not alternatives:
             alternatives = [
-                r for r in compare_result["results"]
-                if r["provider"] != inventory.provider
+                r for r in compare_result["results"] if r["provider"] != inventory.provider
             ]
         if not alternatives:
             return {"error": "비교 가능한 타 provider 인스턴스가 없습니다"}
