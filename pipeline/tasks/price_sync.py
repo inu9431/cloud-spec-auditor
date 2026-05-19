@@ -92,6 +92,8 @@ class PriceSyncService:
                     "price_per_hour": dto.price_per_hour,
                     "pricing_source": dto.pricing_source,
                     "currency": dto.currency,
+                    "cpu_arch": dto.cpu_arch,
+                    "is_burstable": dto.is_burstable,
                     "confidence_level": "HIGH",
                     "is_active": True,
                     "last_verified_at": timezone.now().date(),

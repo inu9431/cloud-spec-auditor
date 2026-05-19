@@ -85,7 +85,11 @@ class CloudServiceDTO:
 
     @classmethod
     def from_aws(
-        cls, attributes: dict, region_normalized: str, price_usd: str
+        cls,
+        attributes: dict,
+        region_normalized: str,
+        price_usd: str,
+        pricing_model: str = PricingModel.ON_DEMAND,
     ) -> "CloudServiceDTO":
         memory_str = attributes.get("memory", "0 GiB").replace(" GiB", "").replace(",", "")
         try:
@@ -102,7 +106,7 @@ class CloudServiceDTO:
             vcpu=int(attributes.get("vcpu", 0)),
             memory_gb=memory_gb,
             price_per_hour=Decimal(price_usd),
-            pricing_model=PricingModel.ON_DEMAND,
+            pricing_model=pricing_model,
             pricing_source=PricingSource.AWS_API,
             currency="USD",
             cpu_arch=_aws_cpu_arch(instance_type),
@@ -118,6 +122,7 @@ class CloudServiceDTO:
         vcpu: int,
         memory_gb: Decimal,
         price_per_hour: Decimal,
+        pricing_model: str = PricingModel.ON_DEMAND,
     ) -> "CloudServiceDTO":
         return cls(
             provider="GCP",
@@ -127,7 +132,7 @@ class CloudServiceDTO:
             vcpu=vcpu,
             memory_gb=memory_gb,
             price_per_hour=price_per_hour,
-            pricing_model=PricingModel.ON_DEMAND,
+            pricing_model=pricing_model,
             pricing_source=PricingSource.GCP_API,
             currency="USD",
             cpu_arch=_gcp_cpu_arch(machine_type),
