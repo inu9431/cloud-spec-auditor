@@ -64,7 +64,11 @@ def extract_ec2_instances(credential: CloudCredential) -> dict:
 
     result = {"instances": instances, "fetched_at": timezone.now().isoformat()}
     cache.set(key, result, CACHE_TTL_EC2)
-    logger.info("[EXTRACT_EVENT] type=done provider=AWS user=%s count=%d", credential.user_id, len(instances))
+    logger.info(
+        "[EXTRACT_EVENT] type=done provider=AWS user=%s count=%d",
+        credential.user_id,
+        len(instances),
+    )
     return result
 
 
@@ -83,7 +87,9 @@ def extract_instance_specs(credential: CloudCredential, instance_type: str) -> d
             "memory_gb": Decimal(str(info["MemoryInfo"]["SizeInMiB"])) / 1024,
         }
     except Exception as e:
-        _logger.warning("[EXTRACT_EVENT] type=spec_fail instance_type=%s error=%s", instance_type, str(e))
+        _logger.warning(
+            "[EXTRACT_EVENT] type=spec_fail instance_type=%s error=%s", instance_type, str(e)
+        )
         result = {"vcpu": 0, "memory_gb": Decimal("0")}
 
     cache.set(key, result, 60 * 60 * 24 * 7)

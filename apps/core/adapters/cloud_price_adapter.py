@@ -235,7 +235,9 @@ class CloudPriceAdapter:
                         price_usd = dim.get("pricePerUnit", {}).get("USD", "0")
                         if Decimal(price_usd) > 0:
                             return CloudServiceDTO.from_aws(
-                                attributes, region_normalized, price_usd,
+                                attributes,
+                                region_normalized,
+                                price_usd,
                                 pricing_model=PricingModel.RESERVED,
                             )
         return None
@@ -247,10 +249,10 @@ class CloudPriceAdapter:
         )
         client = billing_v1.CloudCatalogClient(credentials=credentials)
 
-        cpu_prices: dict[str, Decimal] = {}       # {family: on-demand price_per_vcpu}
-        ram_prices: dict[str, Decimal] = {}       # {family: on-demand price_per_gb}
-        cud1yr_cpu: dict[str, Decimal] = {}       # {family: 1yr CUD price_per_vcpu}
-        cud1yr_ram: dict[str, Decimal] = {}       # {family: 1yr CUD price_per_gb}
+        cpu_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_vcpu}
+        ram_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_gb}
+        cud1yr_cpu: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_vcpu}
+        cud1yr_ram: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_gb}
 
         for sku in client.list_skus(parent=GCP_COMPUTE_SERVICE):
             if region not in list(sku.service_regions):

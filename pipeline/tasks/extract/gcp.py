@@ -34,5 +34,9 @@ def extract_gcp_instances(credential: CloudCredential) -> dict:
     raw_instances = adapter.get_running_instances()
     result = {"instances": raw_instances, "fetched_at": timezone.now()}
     cache.set(key, result, CACHE_TTL_GCP)
-    logger.info("[EXTRACT_EVENT] type=done provider=GCP user=%s count=%d", credential.user_id, len(raw_instances))
+    logger.info(
+        "[EXTRACT_EVENT] type=done provider=GCP user=%s count=%d",
+        credential.user_id,
+        len(raw_instances),
+    )
     return result

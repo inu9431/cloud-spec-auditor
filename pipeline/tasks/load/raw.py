@@ -19,7 +19,11 @@ def save_raw_ec2(credential: CloudCredential, raw_data: dict) -> RawEC2Snapshot 
     ).hexdigest()
 
     if RawEC2Snapshot.objects.filter(payload_hash=payload_hash).exists():
-        logger.info("[RAW_EVENT] type=duplicate_skip table=raw_ec2 user=%s hash=%s", credential.user_id, payload_hash[:8])
+        logger.info(
+            "[RAW_EVENT] type=duplicate_skip table=raw_ec2 user=%s hash=%s",
+            credential.user_id,
+            payload_hash[:8],
+        )
         return None
 
     snapshot = RawEC2Snapshot.objects.create(
@@ -29,7 +33,11 @@ def save_raw_ec2(credential: CloudCredential, raw_data: dict) -> RawEC2Snapshot 
         fetched_at=payload["fetched_at"],
         payload_hash=payload_hash,
     )
-    logger.info("[RAW_EVENT] type=saved table=raw_ec2 user=%s snapshot_id=%d", credential.user_id, snapshot.id)
+    logger.info(
+        "[RAW_EVENT] type=saved table=raw_ec2 user=%s snapshot_id=%d",
+        credential.user_id,
+        snapshot.id,
+    )
     return snapshot
 
 
@@ -44,7 +52,11 @@ def save_raw_price(provider: str, region: str, raw_data: list) -> RawPriceSnapsh
     ).hexdigest()
 
     if RawPriceSnapshot.objects.filter(payload_hash=payload_hash).exists():
-        logger.info("[RAW_EVENT] type=duplicate_skip table=raw_price provider=%s region=%s", provider, region)
+        logger.info(
+            "[RAW_EVENT] type=duplicate_skip table=raw_price provider=%s region=%s",
+            provider,
+            region,
+        )
         return None
 
     snapshot = RawPriceSnapshot.objects.create(
@@ -67,7 +79,11 @@ def save_raw_gcp(credential: CloudCredential, raw_data: dict) -> RawGCPSnapshot 
     ).hexdigest()
 
     if RawGCPSnapshot.objects.filter(payload_hash=payload_hash).exists():
-        logger.info("[RAW_EVENT] type=duplicate_skip table=raw_gcp user=%s hash=%s", credential.user_id, payload_hash[:8])
+        logger.info(
+            "[RAW_EVENT] type=duplicate_skip table=raw_gcp user=%s hash=%s",
+            credential.user_id,
+            payload_hash[:8],
+        )
         return None
 
     snapshot = RawGCPSnapshot.objects.create(
@@ -78,7 +94,11 @@ def save_raw_gcp(credential: CloudCredential, raw_data: dict) -> RawGCPSnapshot 
         fetched_at=payload["fetched_at"],
         payload_hash=payload_hash,
     )
-    logger.info("[RAW_EVENT] type=saved table=raw_gcp user=%s snapshot_id=%d", credential.user_id, snapshot.id)
+    logger.info(
+        "[RAW_EVENT] type=saved table=raw_gcp user=%s snapshot_id=%d",
+        credential.user_id,
+        snapshot.id,
+    )
     return snapshot
 
 
@@ -91,7 +111,11 @@ def save_raw_azure(credential: CloudCredential, raw_data: dict) -> RawAzureSnaps
     ).hexdigest()
 
     if RawAzureSnapshot.objects.filter(payload_hash=payload_hash).exists():
-        logger.info("[RAW_EVENT] type=duplicate_skip table=raw_azure user=%s hash=%s", credential.user_id, payload_hash[:8])
+        logger.info(
+            "[RAW_EVENT] type=duplicate_skip table=raw_azure user=%s hash=%s",
+            credential.user_id,
+            payload_hash[:8],
+        )
         return None
 
     snapshot = RawAzureSnapshot.objects.create(
@@ -102,5 +126,9 @@ def save_raw_azure(credential: CloudCredential, raw_data: dict) -> RawAzureSnaps
         fetched_at=payload["fetched_at"],
         payload_hash=payload_hash,
     )
-    logger.info("[RAW_EVENT] type=saved table=raw_azure user=%s snapshot_id=%d", credential.user_id, snapshot.id)
+    logger.info(
+        "[RAW_EVENT] type=saved table=raw_azure user=%s snapshot_id=%d",
+        credential.user_id,
+        snapshot.id,
+    )
     return snapshot
