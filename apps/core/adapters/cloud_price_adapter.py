@@ -181,36 +181,66 @@ class CloudPriceAdapter:
         for page in pages:
             for price_str in page["PriceList"]:
                 price_data = json.loads(price_str)
-                dto = self._parse_aws_item(price_data)
-                if dto:
-                    results.append(dto)
+                results.extend(self._parse_aws_item(price_data))
         return results
 
-    def _parse_aws_item(self, data: dict) -> CloudServiceDTO | None:
+    def _parse_aws_item(self, data: dict) -> List[CloudServiceDTO]:
         attributes = data.get("product", {}).get("attributes", {})
 
         instance_type = attributes.get("instanceType", "")
         if not instance_type:
-            return None
+            return []
 
         region = attributes.get("regionCode", "")
         try:
             region_normalized = normalize_region(region)
         except ValueError:
-            return None
+            return []
 
-        # onDemand 가격 추출(중첩 구조)
+        results = []
+
+        # On-Demand 파싱
         on_demand = data.get("terms", {}).get("OnDemand", {})
-        if not on_demand:
+        if on_demand:
+            price_dimensions = list(on_demand.values())[0].get("priceDimensions", {})
+            price_usd = list(price_dimensions.values())[0].get("pricePerUnit", {}).get("USD", "0")
+            if Decimal(price_usd) > 0:
+                results.append(CloudServiceDTO.from_aws(attributes, region_normalized, price_usd))
+
+        # Reserved 1년 No Upfront 파싱
+        reserved_dto = self._parse_aws_reserved(attributes, region_normalized, data)
+        if reserved_dto:
+            results.append(reserved_dto)
+
+        return results
+
+    def _parse_aws_reserved(
+        self, attributes: dict, region_normalized: str, data: dict
+    ) -> CloudServiceDTO | None:
+        reserved_terms = data.get("terms", {}).get("Reserved", {})
+        if not reserved_terms:
             return None
 
-        price_dimensions = list(on_demand.values())[0].get("priceDimensions", {})
-        price_usd = list(price_dimensions.values())[0].get("pricePerUnit", {}).get("USD", "0")
-
-        if Decimal(price_usd) == 0:
-            return None
-
-        return CloudServiceDTO.from_aws(attributes, region_normalized, price_usd)
+        for term in reserved_terms.values():
+            attrs = term.get("termAttributes", {})
+            if (
+                attrs.get("LeaseContractLength") == "1yr"
+                and attrs.get("PurchaseOption") == "No Upfront"
+                and attrs.get("OfferingClass") == "standard"
+            ):
+                price_dims = term.get("priceDimensions", {})
+                for dim in price_dims.values():
+                    # No Upfront은 Hrs 단위 항목이 시간당 비용
+                    if dim.get("unit") == "Hrs":
+                        price_usd = dim.get("pricePerUnit", {}).get("USD", "0")
+                        if Decimal(price_usd) > 0:
+                            return CloudServiceDTO.from_aws(
+                                attributes,
+                                region_normalized,
+                                price_usd,
+                                pricing_model=PricingModel.RESERVED,
+                            )
+        return None
 
     def fetch_gcp_prices(self, region: str) -> List[CloudServiceDTO]:
         credentials = service_account.Credentials.from_service_account_file(
@@ -219,13 +249,17 @@ class CloudPriceAdapter:
         )
         client = billing_v1.CloudCatalogClient(credentials=credentials)
 
-        cpu_prices: dict[str, Decimal] = {}  # {family: price_per_vcpu}
-        ram_prices: dict[str, Decimal] = {}  # {family: price_per_gb}
+        cpu_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_vcpu}
+        ram_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_gb}
+        cud1yr_cpu: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_vcpu}
+        cud1yr_ram: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_gb}
 
         for sku in client.list_skus(parent=GCP_COMPUTE_SERVICE):
             if region not in list(sku.service_regions):
                 continue
-            if sku.category.usage_type != "OnDemand":
+
+            usage_type = sku.category.usage_type
+            if usage_type not in ("OnDemand", "Commit1Yr"):
                 continue
 
             desc = sku.description
@@ -237,10 +271,19 @@ class CloudPriceAdapter:
             if unit_price is None:
                 continue
 
-            if "Core" in desc:
-                cpu_prices[family] = unit_price
-            elif "Ram" in desc:
-                ram_prices[family] = unit_price
+            is_core = "Core" in desc
+            is_ram = "Ram" in desc
+
+            if usage_type == "OnDemand":
+                if is_core:
+                    cpu_prices[family] = unit_price
+                elif is_ram:
+                    ram_prices[family] = unit_price
+            else:  # Commit1Yr
+                if is_core:
+                    cud1yr_cpu[family] = unit_price
+                elif is_ram:
+                    cud1yr_ram[family] = unit_price
 
         try:
             region_normalized = normalize_region(region)
@@ -250,21 +293,39 @@ class CloudPriceAdapter:
         results = []
         for machine_type, specs in GCP_MACHINE_SPECS.items():
             family = machine_type.split("-")[0]
+            vcpu = specs["vcpu"]
+            memory_gb = specs["memory_gb"]
+
+            # On-Demand
             cpu_p = cpu_prices.get(family)
             ram_p = ram_prices.get(family)
-            if cpu_p is None or ram_p is None:
-                continue
+            if cpu_p is not None and ram_p is not None:
+                results.append(
+                    CloudServiceDTO.from_gcp(
+                        machine_type=machine_type,
+                        region=region,
+                        region_normalized=region_normalized,
+                        vcpu=vcpu,
+                        memory_gb=memory_gb,
+                        price_per_hour=cpu_p * vcpu + ram_p * memory_gb,
+                    )
+                )
 
-            price_per_hour = cpu_p * specs["vcpu"] + ram_p * specs["memory_gb"]
-            dto = CloudServiceDTO.from_gcp(
-                machine_type=machine_type,
-                region=region,
-                region_normalized=region_normalized,
-                vcpu=specs["vcpu"],
-                memory_gb=specs["memory_gb"],
-                price_per_hour=price_per_hour,
-            )
-            results.append(dto)
+            # 1년 CUD (Committed Use Discount)
+            cud_cpu = cud1yr_cpu.get(family)
+            cud_ram = cud1yr_ram.get(family)
+            if cud_cpu is not None and cud_ram is not None:
+                results.append(
+                    CloudServiceDTO.from_gcp(
+                        machine_type=machine_type,
+                        region=region,
+                        region_normalized=region_normalized,
+                        vcpu=vcpu,
+                        memory_gb=memory_gb,
+                        price_per_hour=cud_cpu * vcpu + cud_ram * memory_gb,
+                        pricing_model=PricingModel.RESERVED,
+                    )
+                )
 
         return results
 

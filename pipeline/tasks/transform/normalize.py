@@ -1,19 +1,21 @@
 import logging
 from decimal import Decimal
 
-from prefect import task
+from prefect import get_run_logger, task
 
 from apps.core.dto.inventory_dto import EC2InventoryDTO
 from apps.core.utils.region_mapper import normalize_region
 from pipeline.raw.models import RawEC2Snapshot
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @task
 def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list[EC2InventoryDTO]:
+    logger = get_run_logger()
     instances = snapshot.payload.get("instances", [])
     dtos = []
+    skipped = 0
     for i in range(0, len(instances), chunk_size):
         chunk = instances[i : i + chunk_size]
         for inst in chunk:
@@ -24,10 +26,11 @@ def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list
                 region_normalized = normalize_region(region)
             except ValueError:
                 logger.warning(
-                    "리전 정규화 실패 skip: instance_id=%s region=%s",
+                    "[NORMALIZE_EVENT] type=region_skip instance_id=%s region=%s",
                     inst.get("instance_id"),
                     region,
                 )
+                skipped += 1
                 continue
 
             dtos.append(
@@ -48,6 +51,9 @@ def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list
                 )
             )
         logger.debug(
-            "normalize chunk 완료: %d/%d", min(i + chunk_size, len(instances)), len(instances)
+            "[NORMALIZE_EVENT] type=chunk_done progress=%d/%d",
+            min(i + chunk_size, len(instances)),
+            len(instances),
         )
+    logger.info("[NORMALIZE_EVENT] type=done total=%d skipped=%d", len(dtos), skipped)
     return dtos

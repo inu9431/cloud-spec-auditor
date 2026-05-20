@@ -1,15 +1,16 @@
 import logging
 
-from prefect import task
+from prefect import get_run_logger, task
 
 from apps.core.dto.inventory_dto import EC2InventoryDTO
 from apps.inventories.models import UserInventory
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @task
 def load_inventory(user, dtos: list[EC2InventoryDTO]) -> list[UserInventory]:
+    logger = get_run_logger()
     if not dtos:
         return []
 
