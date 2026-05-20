@@ -211,12 +211,21 @@ API Rate Limit은 서버 보호만이 목적이 아님. 유저 AWS 계정 비용
 c2, m1, a2, t2d 등 미지원 → 해당 스펙 비교 결과 누락.
 
 **단기 해결:**
-매핑 테이블 확장 (c2-standard-4/8, n2-standard-8/16, e2-standard-4/16 추가)
+매핑 테이블 확장 — N2D, C2D, M1, T2D, T2A 시리즈 추가 (`cloud_price_adapter.py`)
+총 23개 → 48개 항목으로 확장.
+
+**부가 구현:**
+- `compare_service.py`에 `missing_providers` 필드 추가 — "GCP 없음"인지 "GCP가 더 비쌈"인지 구분 가능
+- `CloudService`에 `cpu_arch`, `is_burstable` 필드 추가 → 아키텍처 미스매치 방지 (ARM vs x86 구분)
 
 **중기 해결:**
-DB(CloudService)로 이관 → 어드민 관리
+DB(CloudService)로 이관 → 어드민 관리 (미구현)
 
-**현재 상태:** 단기 해결 진행 중
+**현재 상태:** ✅ 완료 (단기 해결) — N2D/C2D/M1/T2D/T2A 시리즈 추가로 주요 누락 케이스 해결
+
+**배운 점:**
+비교 결과에서 특정 공급자가 빠질 때 유저가 이유를 알 수 있어야 함. "GCP 없음" vs "GCP가 더 비쌈"은 다른 정보.
+`missing_providers` 필드를 API 응답에 포함시키는 게 UX 설계의 일부임.
 
 ---
 
@@ -415,23 +424,32 @@ Compute Optimizer가 비활성화된 유저 또는 활성화 후 14일 미만인
 
 핵심 가치("과스펙 감지")가 데이터 없이 실행되는 구조적 문제.
 
-**해결 방향:**
+**구현 내용:**
 
-1. Gemini 프롬프트를 Compute Optimizer 데이터 유무에 따라 분기
-```python
-if rightsizing_data:
-    prompt = f"CPU {cpu_util}%, 메모리 {mem_util}% 기준 과스펙 분석..."
-else:
-    prompt = f"사용률 데이터 없음. {instance_type} 스펙 기준 3사 가격 비교만 제공..."
-```
+1. **Gemini 프롬프트 3-way 분기 (`gemini_adapter.py`)**
+   - `analysis_type` 파라미터 추가 (RIGHTSIZING / SWITCH_PROVIDER)
+   - `RIGHTSIZING`: CPU/메모리 사용률 기반 다운사이징 분석 프롬프트
+   - `SWITCH_PROVIDER`: 동일 스펙 기준 크로스 클라우드 최저가 비교 프롬프트
+   - 데이터 없음(Compute Optimizer 미활성화): "사용률 데이터 없음, 스펙 기반 가격 비교만 제공" 별도 프롬프트
 
-2. `/credentials/test/` 응답에 Compute Optimizer 활성화 상태 포함
-3. 대시보드에서 비활성화 시 "가격 비교만 제공" 배너 표시
+2. **`audit_service.py` 분기 로직**
+   - `cpu_usage_avg < 30%` → `analysis_type=RIGHTSIZING` (vcpu//2, memory//2 기준 다운사이징 후보)
+   - 그 외 → `analysis_type=SWITCH_PROVIDER` (동일 스펙 3사 최저가)
+   - `cloud_service=None`인 후보는 DB 미존재 → skip (null FK 저장 방지)
 
-**현재 상태:** 미적용 — 구현 예정
+3. **Credential Test API (`users/views.py`)**
+   - `/credentials/<pk>/test/` 응답에 `compute_optimizer_active` (bool), `compute_optimizer_note` (str | None) 추가
+   - 미활성화 시: "Compute Optimizer를 활성화하면 14일 후 사용률 기반 정밀 분석이 가능합니다" 안내
+
+4. **대시보드 배너 (`frontend/app/dashboard/page.tsx`)**
+   - 인벤토리가 존재하고 모든 인스턴스의 `cpu_usage_avg`가 null이면 노란 경고 배너 표시
+   - "Compute Optimizer를 활성화하면 CPU 사용률 기반 과스펙 진단이 가능합니다" + AWS 콘솔 직접 링크
+
+**현재 상태:** ✅ 완료
 
 **배운 점:**
 서비스 핵심 기능의 정확성은 LLM이 아니라 입력 데이터 품질에서 결정됨. 데이터가 없을 때의 동작을 명시적으로 처리해야 함.
+"데이터가 없으면 분석 자체를 안 하는" 것보다 "데이터 수준에 맞는 분석으로 분기"하는 것이 UX상 더 낫다.
 
 ---
 
@@ -535,6 +553,7 @@ AI 응답을 프론트에서 그냥 텍스트로 뿌리면 마크다운 기호�
 LLM 응답을 보여주는 UI는 처음부터 마크다운 렌더링을 전제하고 설계해야 함.
 유저 입력은 XSS 방지를 위해 일반 텍스트로 처리하고, AI 응답에만 적용하는 것이 원칙.
 
+---
 
 ## #017: PostgreSQL 인덱스 최적화 — 3사 스펙 비교 쿼리 성능 개선
 
@@ -567,3 +586,96 @@ LLM 응답을 보여주는 UI는 처음부터 마크다운 렌더링을 전제�
 복합 필터 쿼리에서는 필터 컬럼 순서대로 복합 인덱스를 구성해야 옵티마이저가 단일 인덱스로 처리 가능.
 선택도(selectivity)가 높은 컬럼(vcpu, memory_gb)을 앞에 배치하는 것이 원칙.
 인덱스 추가 후 반드시 `EXPLAIN ANALYZE`로 실제 사용 여부 확인 필요 — 옵티마이저가 항상 새 인덱스를 선택한다는 보장 없음.
+
+---
+
+## #019: Reserved 가격 수집 — AWS terms 구조 파싱
+
+**발생 시점:** 2026-05 (feature/reserved-spot-pricing)
+
+**문제:**
+AWS Pricing API 응답에서 On-Demand 가격은 `terms.OnDemand` 키 하위에 단일 항목이 있지만,
+Reserved 가격은 `terms.Reserved` 하위에 약정 기간 × 선결제 방식 수십 개의 조합이 중첩 구조로 존재.
+원하는 조건(1년 No Upfront Standard)을 필터링하는 로직이 필요했음.
+
+**원인:**
+```json
+"terms": {
+  "Reserved": {
+    "<offerTermCode>": {
+      "termAttributes": {
+        "LeaseContractLength": "1yr",
+        "PurchaseOption": "No Upfront",
+        "OfferingClass": "standard"
+      },
+      "priceDimensions": { ... }
+    }
+  }
+}
+```
+중첩 딕셔너리를 두 단계 순회해야 하고, 조건 매칭 실패 시 조용히 누락.
+
+**해결:**
+`_parse_aws_reserved()` 헬퍼 함수 분리. `termAttributes` 3개 조건 동시 매칭 후 `pricePerUnit.USD` 추출.
+`_parse_aws_item()`이 On-Demand DTO + Reserved DTO `List[CloudServiceDTO]`를 반환하도록 변경.
+`fetch_aws_prices()`는 리스트를 flat하게 합산해서 `_save_prices()` 호출.
+
+**현재 상태:** ✅ 완료
+
+**배운 점:**
+외부 API 응답 구조가 복잡할수록 파싱 로직을 헬퍼 함수로 분리해야 테스트 용이성이 높아짐.
+조건 매칭 실패는 예외를 내지 않고 조용히 None 반환 + 호출자에서 필터링하는 패턴이 안전함.
+
+---
+
+## #020: Prefect @task 내 이중 로깅 — get_run_logger()와 module 로거 분리 패턴
+
+**발생 시점:** 2026-05 (feature/reserved-spot-pricing)
+
+**문제:**
+`pipeline/tasks/` 전체에서 로깅 패턴이 혼재:
+- 일부 파일: `get_run_logger()` 사용 (Prefect UI에는 보이지만 Django 서버 로그에 없음)
+- 일부 파일: `logging.getLogger(__name__)` 사용 (서버 로그에는 있지만 Prefect UI에 없음)
+- `@task` 안에서 호출되는 헬퍼 함수는 `get_run_logger()`를 호출할 수 없음 (Prefect 컨텍스트 밖)
+
+**원인:**
+Prefect 3.x에서 `get_run_logger()`는 Prefect flow/task 실행 컨텍스트 안에서만 유효함.
+모듈 최상위에서 호출하거나 컨텍스트 밖 헬퍼 함수에서 호출하면 `MissingContextError` 발생.
+
+**해결:**
+이중 로깅 패턴 표준화:
+
+```python
+# 모듈 레벨 — 헬퍼 함수용
+_logger = logging.getLogger(__name__)
+
+# @task 함수 내부 — Prefect UI 노출용
+@task
+def some_task():
+    logger = get_run_logger()  # task 컨텍스트 안에서만 호출
+    ...
+
+# 헬퍼 함수는 _logger 사용
+def _helper():
+    _logger.info(...)
+```
+
+**구조화 태그 체계 (pipeline/tasks/ 전체 적용):**
+
+| 태그 | 위치 | 의미 |
+|---|---|---|
+| `[EXTRACT_EVENT]` | extract/aws.py, gcp.py, azure.py | API 호출 완료 / 캐시 히트 |
+| `[RAW_EVENT]` | load/raw.py | Snapshot 저장 / 중복 skip |
+| `[NORMALIZE_EVENT]` | transform/normalize.py | 청크 처리 진행 / 완료 |
+| `[VALIDATE_SKIP]` | transform/validate.py | 비정상값 skip |
+| `[VALIDATE_SUMMARY]` | transform/validate.py | 검증 결과 요약 |
+| `[VALIDATE_DONE]` | transform/validate.py | 검증 완료 |
+| `[BILLING_EVENT]` | load/prices.py | 가격 데이터 적재 |
+| `[INVENTORY_EVENT]` | load/inventory.py | 인벤토리 bulk 처리 |
+
+**현재 상태:** ✅ 완료
+
+**배운 점:**
+Prefect `get_run_logger()`는 반드시 `@task` / `@flow` 함수 내부에서 호출해야 함.
+구조화 태그(`[EVENT_TYPE] key=value`)를 도입하면 `grep [BILLING_EVENT]`로 특정 이벤트만 필터링 가능.
+나중에 CloudWatch Logs로 이전해도 태그 기반 Metric Filter 설정이 바로 가능.

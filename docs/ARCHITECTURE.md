@@ -73,7 +73,7 @@ RawPriceSnapshot  — 3사 가격 API 응답 원본
 
 ```
 UserInventory — 유저의 실제 사용 인스턴스 (자동 수집)
-CloudService  — 3사 가격 데이터 (On-Demand 기준)
+CloudService  — 3사 가격 데이터 (On-Demand + Reserved 기준, cpu_arch / is_burstable 포함)
 ```
 
 ### Gold Layer (분석 결과 테이블)
@@ -258,6 +258,11 @@ sync/audit 제한이 중요한 이유: 봇이 반복 호출 시 유저 AWS 계�
 - `@task(retries=3)` + Partial Failure 허용으로 일시 장애 대응
 - 인스턴스별 ThreadPoolExecutor 병렬 호출
 - `bulk_create` / `bulk_update`로 DB 부하 감소
+
+**추천 정확성 향상 시:**
+- `CloudService.cpu_arch` (x86_64 / arm64), `is_burstable` 필드로 아키텍처 미스매칭 방지
+- `compare_service.missing_providers`로 특정 공급자 데이터 누락 시 명시적으로 노출
+- Reserved 가격 행(`pricing_model=RESERVED`)은 On-Demand와 같은 테이블에 별도 행으로 공존
 
 ---
 

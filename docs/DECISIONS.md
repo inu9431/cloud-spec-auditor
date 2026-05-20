@@ -189,7 +189,11 @@ if RawEC2Snapshot.objects.filter(credential=credential, payload_hash=payload_has
 - `CloudService.pricing_model` 필드가 이미 있어 스키마 변경 없이 나중에 데이터만 추가 적재 가능
 - Gemini 프롬프트에 "On-Demand 기준, Reserved/Spot 사용 시 추가 절감 가능" 명시로 단기 해결
 
-**이후 계획:** Reserved 가격 별도 수집 (AWS: TermType=Reserved / GCP: CUD SKU / Azure: priceType=Reservation)
+**이후 계획 → ✅ 완료 (2026-05, feature/reserved-spot-pricing):** Reserved 가격 별도 수집 구현
+- AWS: `terms.Reserved` 파싱, 1년 No Upfront Standard 조건 필터링 → `pricing_model=RESERVED` 행 적재
+- GCP: Cloud Billing API에서 `Commit1Yr` usage_type SKU 수집 → `pricing_model=RESERVED`
+- Azure: Reservation 가격 수집은 미구현 (Spot도 미구현)
+- `_parse_aws_item()` → `List[CloudServiceDTO]` (OnDemand + Reserved 동시 반환)
 
 ---
 
@@ -368,21 +372,26 @@ SPEC_BASED (confidence: MEDIUM)
 **배경:**
 같은 vcpu + memory_gb라도 아키텍처와 성능 특성이 다른 케이스가 존재.
 
-**케이스 1 — ARM vs x86:**
+**케이스 1 — ARM vs x86:** ✅ 완료 (2026-05, feature/recommendation-engine-upgrade)
 - t3.medium(x86)과 t4g.medium(ARM, Graviton) 모두 vcpu=2, memory=4GB
 - ARM 호환 안 되는 앱에 t4g 추천 시 틀린 추천
-- **결정:** `CloudService`에 `cpu_arch` 필드 추가, 비교 시 동일 아키텍처만 매칭 (중기)
+- **구현:** `CloudService`에 `cpu_arch` 필드 추가 (`CpuArch.X86_64` / `CpuArch.ARM64`)
+  - `cloud_service_dto.py`에 `_aws_cpu_arch()`, `_gcp_cpu_arch()`, `_azure_cpu_arch()` 헬퍼 추가
+  - `audit_service.py`에서 추천 후보를 `cpu_arch` 동일한 인스턴스로만 필터링
+  - 필터 후 후보가 없으면 arch 제약 풀어서 fallback 재탐색
 
-**케이스 2 — 버스터블 vs 고정 성능:**
+**케이스 2 — 버스터블 vs 고정 성능:** ✅ 완료 (2026-05, feature/recommendation-engine-upgrade)
 - t3.medium(버스터블)과 m5.large(고정) 모두 vcpu=2, memory=4GB
 - 지속 부하 시 t3는 크레딧 소진으로 성능 저하 가능
-- **단기 결정:** 프롬프트에 `instance_type`명 전달 → LLM이 버스터블 여부를 맥락 설명에 포함
-- **중기 결정:** `CloudService`에 `is_burstable` 필드 추가
+- **구현:** `CloudService`에 `is_burstable` 필드 추가 (bool)
+  - `cloud_service_dto.py`에 `_aws_is_burstable()`, `_gcp_is_burstable()`, `_azure_is_burstable()` 헬퍼 추가
+  - `audit_service.py`에서 버스터블 여부도 동일하게 매칭 후 fallback
 
-**케이스 3 — GCP 데이터 누락:**
+**케이스 3 — GCP 데이터 누락:** ✅ 완료 (2026-05, feature/gcp-spec-dashboard-banner)
 - GCP 일부 머신 타입이 DB에 없으면 비교에서 조용히 빠짐
 - 유저가 "GCP 없음"인지 "GCP가 더 비쌈"인지 구분 불가
-- **결정:** 비교 결과에 provider별 데이터 존재 여부 명시
+- **구현:** `compare_service.py`에 `ALL_PROVIDERS = {"AWS", "GCP", "AZURE"}` 정의,
+  응답에 `missing_providers` 필드 추가 (결과가 없는 공급자 목록)
 
 ---
 
@@ -396,15 +405,35 @@ SPEC_BASED (confidence: MEDIUM)
 - 현재 Prefect 로그와 Django 로그가 분리되어 장애 추적 어려움
 - Cost Explorer 등 유저 AWS 계정에서 비용 발생하는 API 호출을 별도로 추적해야 함
 
-**태그 체계:**
-```
-BILLING_EVENT  — 유저 AWS 계정 비용 발생 API (Cost Explorer, Compute Optimizer)
-RETRY_ERROR    — 재시도 가능한 일시 장애 (Throttling, 타임아웃)
-PERM_ERROR     — 재시도 불가 에러 (AccessDeniedException)
-ABUSE_ALERT    — 남용 감지 (sync 단시간 반복 호출)
+**구현 (2026-05, feature/reserved-spot-pricing):** ✅ 완료
+
+이중 로깅 패턴 — `pipeline/tasks/` 전체 표준화:
+```python
+# 모듈 레벨 (헬퍼 함수, @task 밖에서 호출되는 코드)
+_logger = logging.getLogger(__name__)
+
+# @task 함수 내부 (Prefect UI 노출)
+@task
+def some_task():
+    logger = get_run_logger()
 ```
 
-**확장 방향:** 로그 포맷을 지금부터 구조화해두면 배포 후 AWS CloudWatch Logs로 전환 시 쿼리 바로 가능
+**실제 구현된 태그 체계:**
+
+| 태그 | 위치 | 의미 |
+|---|---|---|
+| `[EXTRACT_EVENT]` | extract/aws.py, gcp.py, azure.py | API 호출 완료 / 캐시 히트 |
+| `[RAW_EVENT]` | load/raw.py | Snapshot 저장 / 중복 skip |
+| `[NORMALIZE_EVENT]` | transform/normalize.py | 청크 처리 / 완료 |
+| `[VALIDATE_SKIP]` | transform/validate.py | 비정상값 skip |
+| `[VALIDATE_SUMMARY]` | transform/validate.py | 검증 결과 요약 |
+| `[VALIDATE_DONE]` | transform/validate.py | 검증 완료 |
+| `[BILLING_EVENT]` | load/prices.py | 가격 데이터 적재 |
+| `[INVENTORY_EVENT]` | load/inventory.py | 인벤토리 bulk 처리 |
+
+초기 계획(RETRY_ERROR, PERM_ERROR, ABUSE_ALERT 태그)은 미구현 — 배포 후 필요 시 추가.
+
+**확장 방향:** 구조화 태그 포맷(`[TAG] key=value`)을 지금부터 사용해두면 배포 후 AWS CloudWatch Logs Metric Filter 또는 Loki 쿼리로 즉시 전환 가능.
 
 **트레이드오프:**
 - 로그 호출이 2배로 늘어나 코드가 약간 번거로움
