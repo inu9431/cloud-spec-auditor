@@ -1,3 +1,4 @@
+from django.views.defaults import permission_denied
 from rest_framework import status
 from rest_framework.exceptions import APIException
 
@@ -15,3 +16,4 @@ class BaseAPIException(APIException):
 class GeminiAPIError(BaseAPIException):
     status_code = 502
     default_detail = "Gemini API 호출에 실패했습니다"
+
