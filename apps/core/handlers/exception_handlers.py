@@ -52,4 +52,3 @@ def custom_exception_handler(exc, context):
         )
 
     return response
-
