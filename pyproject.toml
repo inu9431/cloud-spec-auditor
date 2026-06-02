@@ -70,4 +70,4 @@ sections = ["FUTURE", "STDLIB", "DJANGO", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLD
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "costcut.settings"
 python_files = ["test_*.py", "*_test.py", "tests.py"]
-testpaths = ["apps"]
+testpaths = ["tests"]
