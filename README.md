@@ -2,22 +2,31 @@
 
 > AWS Key 한 번 등록으로 클라우드 과스펙을 자동 감지하고 AWS / GCP / Azure 3사 비교 기반 절감 솔루션을 제공하는 FinOps 서비스
 
+[![GitHub](https://img.shields.io/badge/GitHub-inu9431%2Fcloud--spec--auditor-181717?logo=github)](https://github.com/inu9431/cloud-spec-auditor)
+
+---
+
+## 개발 배경
+
+Discord 봇을 AWS에 배포해 운영하던 중 예상치 못한 클라우드 비용이 발생했습니다. 인프라를 아는 개발자인 내가 이렇다면, 처음 배포하는 사람은 어떨까 — 그게 시작이었습니다.
+
+기존 FinOps 도구들은 이미 클라우드를 운영 중인 팀을 대상으로 합니다. CostCutter는 **클라우드를 처음 선택하는 단계(AI 컨설팅)부터 운영 최적화(실계정 자동 분석)까지** 하나의 흐름으로 연결하는 데 집중했습니다.
+
 ---
 
 ## 목차
 
 - [서비스 소개](#서비스-소개)
-- [구현 현황](#구현-현황)
 - [기술 스택](#기술-스택)
 - [시스템 아키텍처](#시스템-아키텍처)
 - [데이터 파이프라인 — Bronze / Silver / Gold](#데이터-파이프라인--bronze--silver--gold)
 - [전체 데이터 흐름](#전체-데이터-흐름)
+- [핵심 기능](#핵심-기능)
 - [보안 설계](#보안-설계)
 - [API 목록](#api-목록)
 - [아키텍처 의사결정](#아키텍처-의사결정)
 - [시스템 고려사항 및 트러블슈팅](#시스템-고려사항-및-트러블슈팅)
 - [대용량 파이프라인 부하 분석](#대용량-파이프라인-부하-분석)
-- [리전 매핑](#리전-매핑)
 - [시작하기](#시작하기)
 
 ---
@@ -62,33 +71,6 @@ Gemini AI 과스펙 진단 + 절감 추천 자동 생성
 - 단순 가격 비교가 아닌 실제 사용률(Compute Optimizer 14일 분석) 기반 진단
 - 3사 동일 스펙 비교로 클라우드 전환 시 절감 효과 수치 제시
 - AI 컨설팅 채팅과 실계정 분석이 연결되어 온보딩 흐름 완성
-
----
-
-## 구현 현황
-
-| 항목 | 상태 |
-|---|---|
-| JWT 인증 (회원가입/로그인) | ✅ 완료 |
-| AWS Key 등록 (직접입력 / CSV) + 암호화 저장 | ✅ 완료 |
-| Credential Validation API | ✅ 완료 |
-| EC2 + Cost Explorer + Compute Optimizer 자동 수집 | ✅ 완료 |
-| GCP / Azure 인벤토리 수집 파이프라인 | ✅ 완료 |
-| ELT 구조 (Bronze/Silver/Gold 3계층) | ✅ 완료 |
-| Prefect 오케스트레이션 (24h / 주 1회 자동 스케줄) | ✅ 완료 |
-| AWS / GCP / Azure 3사 가격 Sync API | ✅ 완료 |
-| 3사 동일 스펙 가격 비교 API | ✅ 완료 |
-| Gemini AI 과스펙 진단 + 절감 추천 | ✅ 완료 |
-| LLM 역할 분리 (Python 계산, LLM 설명만) | ✅ 완료 |
-| DRF Throttle (API 남용 방지) | ✅ 완료 |
-| Next.js 대시보드 (로그인/인벤토리/AI추천/키관리) | ✅ 완료 |
-| Docker Compose 전체 서비스 구성 | ✅ 완료 |
-| Data Validation (비정상값 감지 + Prefect 로그) | ✅ 완료 |
-| AI 컨설팅 채팅 (멀티턴, 클라우드 입문자용) | ✅ 완료 |
-| 컨설팅 → AWS 키 등록 온보딩 연결 | ✅ 완료 |
-| AWS 키 등록 유저 대상 실계정 기반 컨설팅 | ✅ 완료 |
-| 파이프라인 대용량 부하 테스트 (bulk_create ~28,000 rows/s) | ✅ 완료 |
-| 핵심 비즈니스 로직 테스트 (pytest) | ✅ 완료 |
 
 ---
 
@@ -366,7 +348,41 @@ GET /api/recommendations/
 
 ---
 
+## 핵심 기능
+
+### 인증 & 보안
+- JWT 인증 (회원가입/로그인/로그아웃)
+- AWS Key Fernet 암호화 저장 (`django-encrypted-model-fields`)
+- Credential Validation API — 등록 직후 IAM 권한 자동 검증
+- DRF Throttle — sync/audit 유저별 쿨다운, 고객 AWS 계정 비용 보호
+
+### 데이터 수집 파이프라인
+- AWS EC2 + Cost Explorer + Compute Optimizer 24h 자동 수집
+- GCP Compute Engine / Azure VM 인벤토리 수집
+- ELT 구조 (Bronze Raw → Silver Mart) + Prefect 오케스트레이션
+- SHA-256 payload_hash 기반 중복 제거, 비정상값 감지 + Prefect 로그
+
+### 가격 비교 & AI 분석
+- AWS / GCP / Azure 3사 On-Demand / Reserved 가격 수집 및 비교
+- CPU 사용률 기반 분석 분기: RIGHTSIZING(과스펙) / SWITCH_PROVIDER(동일 스펙)
+- Python이 절감액 계산, Gemini는 설명만 생성 (LLM 역할 분리)
+- cpu_arch / is_burstable 기준 동일 아키텍처 인스턴스만 비교
+
+### AI 컨설팅 채팅
+- 클라우드 비전문가 대상 멀티턴 채팅 (Gemini history 배열 방식)
+- user_state 3분기: 미등록 / 키 등록 후 데이터 수집 전 / 실계정 데이터 보유
+- JSON 구조화 응답으로 LLM 프롬프트 제약 우회 문제 근본 해결
+
+### 테스트
+- pytest 핵심 비즈니스 로직 테스트 (AAA 패턴, DB 픽스처, GeminiAdapter mock)
+- Prefect `@task` `.fn()` 우회 테스트, `monkeypatch` 외부 의존성 격리
+
+---
+
 ## API 목록
+
+<details>
+<summary>전체 API 보기</summary>
 
 ### 인증
 | Method | Endpoint | 설명 |
@@ -407,6 +423,8 @@ GET /api/recommendations/
 | Method | Endpoint | 설명 |
 |---|---|---|
 | POST | `/api/recommendations/consult/` | 멀티턴 컨설팅 채팅 (대화 히스토리 포함) |
+
+</details>
 
 ---
 
@@ -476,42 +494,25 @@ Compute Optimizer 미활성화 → cpu_usage_avg=None으로 처리, 나머지 �
 
 ## 대용량 파이프라인 부하 분석
 
-더미 데이터 테스트 전 예상 병목 지점을 사전 분석합니다. (`docs/TROUBLESHOOTING.md` #009)
+Docker Compose 로컬 환경에서 더미 데이터 기반 부하 테스트를 실시했습니다. (`docs/TROUBLESHOOTING.md` #018)
 
-### 병목 순위
+### 측정 결과
 
-| 순위 | 지점 | 언제 터지나 | 심각도 | 금전 피해 |
-|---|---|---|---|---|
-| 1 | Gemini audit 동시 트리거 | 유저 10명+ 동시 수집 완료 | 치명적 | Gemini 비용 폭발 |
-| 2 | Cost Explorer 인스턴스별 순차 호출 | 인스턴스 50개+ 유저 | 높음 | 유저 AWS 비용 |
-| 3 | `load_inventory()` 개별 쿼리 | 인스턴스 200개+ | 높음 | 없음 (느려짐) |
-| 4 | RawSnapshot 개별 INSERT | 유저 50명+ | 중간 | 없음 (느려짐) |
-| 5 | normalize 메모리 OOM | 인스턴스 1,000개+ | 중간 | 없음 |
-| 6 | 스케줄 정각 집중 | 유저 30명+ | 낮음 | 없음 |
+| 항목 | 결과 |
+|---|---|
+| bulk_create 처리량 | ~28,000 rows/s (규모 무관 일정) |
+| 유저별 인벤토리 조회 | 데이터 40배 증가에도 0.02ms 유지 (인덱스 효과) |
+| 주요 병목 | bcrypt 패스워드 해싱 (시드 스크립트 한정, 실서비스 무관) |
 
-### 대응 방향
+### 병목 지점별 적용된 해결책
 
-| 지점 | 현재 | 개선 방향 |
+| 병목 지점 | 문제 | 적용된 해결책 |
 |---|---|---|
-| Gemini 동시 트리거 | 수집 완료 직후 자동 실행 | 큐에 넣어 순차 처리 + DRF Throttle |
-| Cost Explorer 호출 | 인스턴스별 개별 호출 | GroupBy로 1회 호출 통합 |
-| DB 적재 | 건별 `update_or_create()` 루프 | `bulk_create` / `bulk_update` 분리 |
-| normalize | 전체 리스트 메모리 적재 | 청크 단위 처리 (100건씩) |
-| 스케줄 집중 | 정각에 모든 유저 동시 시작 | jitter(무작위 지연)로 분산 |
-
----
-
-## 리전 매핑
-
-3사의 서로 다른 리전 체계를 `NormalizedRegion`으로 통일해 동일 기준 가격 비교를 가능하게 합니다.
-
-| NormalizedRegion | AWS | GCP | Azure |
-|---|---|---|---|
-| KR | ap-northeast-2 | asia-northeast3 | koreacentral |
-| JP | ap-northeast-1 | asia-northeast1 | japaneast |
-| US_EAST | us-east-1 | us-east1 | eastus |
-
-추가 예정: US_WEST, SG, EU_WEST, EU_NORTH, CA, AU, IN
+| Gemini 동시 트리거 | 유저 동시 수집 완료 시 Gemini 비용 폭발 | 순차 처리 + DRF Throttle (유저별 1회/5분) |
+| Cost Explorer 순차 호출 | 인스턴스별 개별 API 호출 → 유저 AWS 비용 발생 | GroupBy로 1회 호출 통합 |
+| DB 적재 성능 | 건별 `update_or_create()` 루프 | `bulk_create` / `bulk_update` 분리 |
+| normalize 메모리 | 전체 리스트 메모리 적재 | 청크 단위 처리 (100건씩) |
+| 스케줄 집중 | 정각에 모든 유저 동시 시작 | `jitter` (enumerate + timedelta) 분산 |
 
 ---
 
