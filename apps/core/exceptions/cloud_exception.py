@@ -1,5 +1,5 @@
 # core/exceptions/cloud_exceptions.py
-from core.exceptions.base import BaseAPIException
+from apps.core.exceptions.base import BaseAPIException
 
 
 class CloudServiceNotFound(BaseAPIException):

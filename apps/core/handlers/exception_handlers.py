@@ -21,10 +21,20 @@ def custom_exception_handler(exc, context):
         # 우리가 정의한 default_code가 있으면 사용하고, 없으면 클래스명을 소문자로 사용
         code = getattr(exc, "default_code", response.status_text.lower().replace(" ", "_"))
 
+        data = response.data
+        if "detail" in data:
+            message = data["detail"]
+        elif isinstance(data, dict):
+            # 필드 검증 에러: {"password": ["8자 이상"], ...} → 첫 번째 메시지 추출
+            first = next(iter(data.values()))
+            message = first[0] if isinstance(first, list) else str(first)
+        else:
+            message = "오류가 발생했습니다."
+
         response.data = {
             "status": "error",
             "code": code,
-            "message": response.data.get("detail", "오류가 발생했습니다."),
+            "message": message,
         }
 
     # 3. 알려지지 않은 예외 (서버 내부 에러, 500 에러 등)

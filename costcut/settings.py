@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     "apps.costs",
     "apps.users",
     "apps.inventories",
+    "pipeline.raw",
     "rest_framework_simplejwt.token_blacklist",
+    "encrypted_model_fields",
 ]
 
 AUTH_USER_MODEL = "users.User"
@@ -117,11 +119,23 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.IsAuthenticated",
+        "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
-    "EXCEPTION_HANDLER": "apps.core.handlers.exception_handler.custom_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "EXCEPTION_HANDLER": "apps.core.handlers.exception_handlers.custom_exception_handler",
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "10/min",
+        "user": "1000/day",
+        "sync": "6/hour",
+        "audit": "12/hour",
+        "price_sync": "1/hour",
+    },
 }
 
 # JWT Settings
@@ -138,6 +152,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    "http://localhost:8000",
 ]
 
 # Static Files
@@ -266,3 +282,10 @@ SPECTACULAR_SETTINGS = {
         "displayOperationId": True,
     },
 }
+
+
+_gcp_creds_relative = env("GCP_CREDENTIALS_PATH", default=None)
+GCP_CREDENTIALS_PATH = str(BASE_DIR / _gcp_creds_relative) if _gcp_creds_relative else None
+
+## AWS_KEY
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")

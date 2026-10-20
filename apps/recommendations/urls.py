@@ -1,3 +1,9 @@
 from django.urls import path
 
-urlpatterns = []
+from apps.recommendations.views import AuditView, ConsultChatView, ConsultView
+
+urlpatterns = [
+    path("audit/", AuditView.as_view(), name="audit"),
+    path("consult/", ConsultView.as_view(), name="consult"),
+    path("consult/chat/", ConsultChatView.as_view(), name="consult-chat"),
+]

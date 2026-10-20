@@ -1,0 +1,587 @@
+
+ 
+# 아키텍처 의사결정 기록 (ADR)
+
+의사결정 당시의 맥락과 선택 이유를 기록한다.
+"왜 이렇게 만들었는가"에 대한 답변 문서.
+
+---
+
+## ADR-001: ETL 대신 ELT 구조 선택
+
+**날짜:** 2026-04
+
+**결정:** Transform 전에 Load(raw)를 먼저 수행하는 ELT 구조 채택
+
+**배경:** 
+- ETL(Transform 먼저) 구조에서는 가공 로직에 버그가 있으면 원본 데이터 자체가 손실됨
+- AI Audit 프롬프트나 정규화 로직이 바뀌었을 때 과거 데이터에 소급 적용 불가
+
+**선택 이유:**
+- Raw 데이터를 먼저 저장하면 Transform 로직이 변경되어도 Raw 기반으로 언제든 Backfill 가능
+- 외부 API 응답 구조가 바뀌어도 서비스 중단 없이 Transform 로직만 수정
+
+**트레이드오프:**
+- DB 저장 공간 추가 소요 (Raw + Mart 이중 저장)
+- 수용 이유: 데이터 신뢰성과 재처리 가능성이 스토리지 비용보다 중요
+
+---
+
+## ADR-002: Append-Only Raw 테이블 설계
+
+**날짜:** 2026-04
+
+**결정:** Raw 테이블은 INSERT만 허용, UPDATE/DELETE 금지
+
+**배경:**
+- Update/Upsert를 사용할 경우 과거 특정 시점 데이터가 유실됨
+- 장애 발생 시 어떤 시점의 데이터로 되돌아갈지 기준이 없어짐
+
+**선택 이유:**
+- Append-Only = 불변 로그(Immutable Log) → 특정 시점 재처리(Backfill) 가능
+- 수정된 상태값이 필요할 경우 Silver 레이어(mart)에서만 갱신
+
+**구현:**
+```python
+# load/raw.py — create만 사용, update 금지
+RawEC2Snapshot.objects.create(
+    credential=credential,
+    payload=raw_data,
+    payload_hash=sha256(raw_data),
+)
+```
+
+---
+
+## ADR-003: Hash 기반 중복 제거 전략
+
+**날짜:** 2026-04
+
+**결정:** API 응답 JSON을 SHA-256 해싱하여 동일 데이터 재적재 방지
+
+**배경:**
+- 24시간 스케줄러가 돌 때 인스턴스 상태 변화가 없으면 동일한 데이터가 반복 적재됨
+- DB 용량 낭비 + 의미 없는 레코드 누적
+
+**선택 이유:**
+- 해시 비교로 불필요한 I/O 제거
+- 데이터의 실제 변경 시점(Event Time)을 명확히 식별 가능
+- MD5 대신 SHA-256 선택: 충돌 저항성, 보안 표준 권장
+
+**구현:**
+```python
+payload_hash = hashlib.sha256(json.dumps(raw_data, sort_keys=True).encode()).hexdigest()
+if RawEC2Snapshot.objects.filter(credential=credential, payload_hash=payload_hash).exists():
+    return  # 동일 데이터 → 저장 생략
+```
+
+---
+
+## ADR-004: CloudWatch 미사용 결정
+
+**날짜:** 2026-03
+
+**결정:** CloudWatch 직접 호출 제거, Compute Optimizer로 대체
+
+**배경:**
+- EC2 CPU 사용률을 가져오기 위해 초기 구현에서 CloudWatch GetMetricStatistics 호출
+
+**문제:**
+- 유저 수 증가 시 유저 AWS 계정에서 CloudWatch API 비용 선형 증가
+- 유저당 인스턴스 10개 × 유저 100명 = 1,000번 API 호출/수집 주기
+
+**선택 이유 (Compute Optimizer):**
+- AWS가 내부적으로 14일치 CloudWatch 데이터를 분석해 라이트사이징 추천 제공
+- 호출 비용 없음 (AWS 무료 서비스)
+- 유저가 자기 AWS 계정에서 Compute Optimizer 활성화 필요 (무료, 콘솔 1회 설정)
+
+**트레이드오프:**
+- Compute Optimizer 미활성화 유저는 CPU 사용률 데이터 없음
+- 수용 이유: 온보딩 가이드로 해결, 비용 절감이 더 중요
+
+---
+
+## ADR-005: Airflow 대신 Prefect 선택
+
+**날짜:** 2026-04
+
+**결정:** 파이프라인 오케스트레이션 도구로 Prefect 채택
+
+**검토한 대안:**
+- Apache Airflow: 업계 표준, 기능 풍부
+- Prefect: 경량, Python-native
+- Celery Beat: Django 친화적이나 DAG 개념 없음
+
+**Prefect 선택 이유:**
+- 1인 개발 환경에서 Airflow는 별도 메타DB, 웹서버, 스케줄러 등 인프라 과도
+- Python 코드 그대로 `@flow` / `@task` 데코레이터만 붙이면 됨 — 별도 DSL 없음
+- 로컬에서 `prefect server start` 한 줄로 UI(localhost:4200) 실행 가능
+- 실행 이력, 실패 로그, 단계별 상태를 UI에서 바로 확인
+
+**트레이드오프:**
+- Airflow 대비 생태계 작음
+- 수용 이유: 포트폴리오 + 1인 개발 규모에서 운영 단순성이 생태계 크기보다 중요
+
+---
+
+## ADR-006: DRF Throttle 적용 범위 결정
+
+**날짜:** 2026-03
+
+**결정:** 로그인/sync/audit 엔드포인트에 DRF 내장 Throttle 적용, WAF/IP 차단은 제외
+
+**배경:**
+- 베타 배포 후 봇이 sync를 반복 호출할 경우 유저 AWS 계정에서 Cost Explorer API 비용 발생
+- audit 반복 호출 시 Gemini API 비용 선형 증가
+
+**선택 이유:**
+- DRF `AnonRateThrottle` / `UserRateThrottle` + Custom Throttle로 코드 변경 최소화
+- WAF / Fail2ban / Cloudflare: Railway 환경에서 설정 복잡, 베타 단계 과잉 대응
+
+**적용 범위:**
+
+| 엔드포인트 | 기준 | 제한 |
+|---|---|---|
+| login | IP | 10회/분 |
+| signup | IP | 10회/시간 |
+| sync | 유저 | 1회/10분 |
+| audit | 유저 | 1회/5분 |
+| 가격 sync | 전역 | 1회/1시간 |
+
+---
+
+## ADR-007: AWS Key 암호화 방식 결정
+
+**날짜:** 2026-03 (문제 발견) → 2026-05 (적용 예정)
+
+**결정:** `django-encrypted-model-fields` (Fernet 대칭 암호화) 적용
+
+**문제:**
+- `aws_access_key_id`, `aws_secret_access_key`, `gcp_service_account_json`, `azure_client_secret`이 PostgreSQL에 평문 저장
+- DB 덤프 1회로 전 고객 클라우드 계정 탈취 가능
+
+**검토한 대안:**
+- AWS KMS: 키 관리 서비스, 높은 보안 수준이나 설정 복잡 + 비용
+- HashiCorp Vault: 엔터프라이즈급, 베타 과잉
+- `django-encrypted-model-fields`: Fernet 대칭 암호화, 필드 타입 변경만으로 적용
+
+**선택 이유:**
+- 모델 필드 타입 변경 + `.env`에 Fernet 키 하나 추가하는 수준으로 즉시 적용
+- 복호화는 AWSAdapter 초기화 시점에만 수행 → 최소 노출
+
+**트레이드오프:**
+- 서버 환경변수(`FIELD_ENCRYPTION_KEY`)가 유출되면 복호화 가능
+- 수용 이유: DB 직접 접근보다 환경변수 유출 위험이 낮음, KMS는 이후 단계에서 도입
+
+---
+
+## ADR-008: 3사 가격 On-Demand 기준 수집
+
+**날짜:** 2026-03
+
+**결정:** AWS/GCP/Azure 가격을 On-Demand 기준으로만 수집
+
+**배경:**
+- Reserved/Spot 가격까지 수집하면 구조 복잡도 증가
+
+**선택 이유:**
+- MVP 단계에서 On-Demand 비교만으로도 충분한 가치 제공
+- `CloudService.pricing_model` 필드가 이미 있어 스키마 변경 없이 나중에 데이터만 추가 적재 가능
+- Gemini 프롬프트에 "On-Demand 기준, Reserved/Spot 사용 시 추가 절감 가능" 명시로 단기 해결
+
+**이후 계획 → ✅ 완료 (2026-05, feature/reserved-spot-pricing):** Reserved 가격 별도 수집 구현
+- AWS: `terms.Reserved` 파싱, 1년 No Upfront Standard 조건 필터링 → `pricing_model=RESERVED` 행 적재
+- GCP: Cloud Billing API에서 `Commit1Yr` usage_type SKU 수집 → `pricing_model=RESERVED`
+- Azure: Reservation 가격 수집은 미구현 (Spot도 미구현)
+- `_parse_aws_item()` → `List[CloudServiceDTO]` (OnDemand + Reserved 동시 반환)
+
+---
+
+## ADR-009: 베타 배포 환경 결정
+
+**날짜:** 2026-03
+
+**결정:** Railway (App + PostgreSQL + django-q2 Worker) 사용
+
+**배경:**
+- AWS 프리티어는 t2.micro 1GB 메모리로 django-q2 Worker + Prefect 동시 실행이 빠듯함
+- 1인 개발 환경에서 EC2 + Nginx + gunicorn 직접 관리 부담
+
+**선택 이유 (Railway):**
+- App $5/월 + PostgreSQL $5/월 + Worker $5/월 = 총 $15/월
+- 배포 자동화 (GitHub Push → 자동 빌드/배포)
+- 운영 오버헤드 없이 서비스 개발에 집중 가능
+- 포트폴리오 단계에서 인프라 관리보다 서비스 완성도가 우선
+
+**이후 계획:** 유료 고객 확보 후 EC2 + Nginx + gunicorn + RDS로 이전, VPC 분리는 그 이후
+
+---
+
+## ADR-010: Next.js 대시보드 모노레포 구조 선택
+
+**날짜:** 2026-03
+
+**결정:** 별도 레포 대신 프로젝트 루트의 `frontend/` 폴더에 Next.js 추가
+
+**검토한 대안:**
+- 별도 레포 (`cloud-spec-auditor-frontend`): 관심사 분리 명확
+- 모노레포 (`frontend/` 폴더): 단일 레포 관리
+
+**선택 이유 (모노레포):**
+- 1인 개발 환경에서 레포 2개 동기화 부담
+- 면접 시 "풀스택 포트폴리오" 단일 링크로 제시 가능
+- Next.js와 Django 각각 Railway 서비스로 배포 → 구조상 차이 없음
+
+**구현:**
+- Next.js 14 (App Router) + Tailwind CSS + shadcn/ui
+- `frontend/lib/api.ts` — Django REST API 클라이언트 + 타입 정의
+- 4개 페이지: 로그인 / 대시보드 / AI추천 / AWS키관리
+- `NEXT_PUBLIC_API_URL` 환경변수로 백엔드 URL 관리
+
+---
+
+## ADR-011: Cost Explorer GroupBy fallback 전략
+
+**날짜:** 2026-03
+
+**결정:** RESOURCE_ID GroupBy 실패 시 비용 0.0 반환 + 파이프라인 계속 진행
+
+**배경:**
+GroupBy `RESOURCE_ID`는 Cost Explorer 리소스 수준 데이터 활성화 계정에서만 지원. 일반 계정에서 `ValidationException` 발생.
+
+**선택 이유:**
+- 비용 데이터 없어도 인스턴스 목록 수집/저장은 가능
+- 비용 0.0은 "데이터 없음"으로 처리, AI 분석에서 On-Demand 가격 기준으로 대체 계산
+- 파이프라인 중단보다 부분 데이터 제공이 UX상 낫다고 판단
+
+**트레이드오프:**
+- Cost Explorer 미지원 계정 유저는 실제 청구 비용 대신 0.0 표시
+- 수용 이유: 3사 비교 기준 가격(On-Demand)으로 여전히 절감 추천 가능
+
+---
+
+## ADR-012: AI 추천 정확성 — Compute Optimizer 미활성화 대응 전략
+
+**날짜:** 2026-03
+
+**결정:** Compute Optimizer 데이터 유무에 따라 Gemini 프롬프트를 분기, 데이터 없으면 가격 비교만 제공
+
+**배경:**
+- Compute Optimizer는 유저가 AWS 콘솔에서 직접 활성화 + 14일 데이터 누적 필요
+- 미활성화 상태에서 audit 실행 시 사용률 근거 없이 "과스펙" 추천이 나올 수 있음
+
+**결정 이유:**
+- 근거 없는 추천은 서비스 신뢰도를 해침 → 데이터 없을 때는 가격 비교로만 한정
+- 3사 가격 비교는 Compute Optimizer 없이도 정확하게 동작함 → 핵심 가치는 유지
+- 온보딩에서 Compute Optimizer 활성화를 안내해 데이터 확보 유도
+
+**트레이드오프:**
+- 신규 유저는 14일간 가격 비교만 제공, 과스펙 감지 불가
+- 수용 이유: 부정확한 추천보다 제한된 정확한 추천이 낫다고 판단
+
+---
+
+## ADR-013: 추천 매칭 모드 — Mode A(다운사이징) / Mode B(동급 비교) 분기
+
+**날짜:** 2026-03
+
+**결정:** 과스펙 여부에 따라 두 가지 매칭 모드를 분기해서 실행
+
+**배경:**
+- 현재 `compare_by_spec()`이 항상 exact match(vcpu=, memory_gb=)로만 동작
+- 과스펙 인스턴스에게 "같은 스펙 더 싼 것"을 추천하면 의미 없음 — 다운사이징이 맞음
+- 적정 스펙 인스턴스에게는 동급 비교가 맞음
+
+**모드 A — 다운사이징 (과스펙일 때):**
+```
+필요 vcpu   = cpu_usage_avg / 100 × 현재 vcpu × 1.5 (버퍼)
+필요 memory = memory_usage_avg / 100 × 현재 memory × 1.5 (버퍼)
+최소 보장: vcpu >= 1, memory >= 0.5GB
+→ 필요 스펙 이상 + 현재보다 저렴한 인스턴스 검색
+```
+
+**모드 B — 동급 비교 (적정 스펙일 때, SPEC_BASED 포함):**
+```
+같은 vcpu, memory ±20% 범위에서 더 저렴한 인스턴스 검색
+```
+
+**트레이드오프:**
+- 모드 A는 사용률 데이터가 있어야 의미 있음 → SPEC_BASED면 모드 B로 fallback
+- 수용 이유: 데이터 품질에 따라 자동으로 적절한 모드를 선택하는 구조가 더 안전
+
+---
+
+## ADR-014: 추천 스코어링 — 가격 최저순 대신 다차원 점수 기반 정렬
+
+**날짜:** 2026-03
+
+**결정:** 추천 후보 정렬 기준을 `price_per_hour` 단순 오름차순에서 스코어링 공식으로 전환
+
+**배경:**
+- 가장 싼 인스턴스가 항상 최선이 아님
+- GCP/Azure 전환은 마이그레이션 부담이 있어 절감액이 크더라도 실행 가능성이 낮음
+- 같은 클라우드 내 다운사이징이 실행 가능성이 가장 높음
+
+**스코어링 공식:**
+```python
+score = (
+    cost_saving_pct * 0.5          # 비용 절감률 50%
+    + min(vcpu_headroom, 3) * 10   # 스펙 여유도 30% (상한 cap)
+    + same_provider_bonus          # 동일 클라우드 보너스 20%
+)
+```
+
+**트레이드오프:**
+- 가중치가 고정값이라 워크로드 특성에 따라 최적이 아닐 수 있음
+- 수용 이유: MVP 단계에서 단순하고 설명 가능한 기준이 복잡한 ML 모델보다 신뢰도 높음
+
+---
+
+## ADR-015: analysis_type — USAGE_BASED / SPEC_BASED 분기와 API 응답 노출
+
+**날짜:** 2026-03
+
+**결정:** audit 결과에 `analysis_type`과 `confidence`를 포함해 유저에게 분석 신뢰도를 명시
+
+**배경:**
+- Compute Optimizer 데이터 없을 때 "14일 후 재방문"만 안내하면 첫 경험에서 이탈
+- 데이터 품질이 다른 두 케이스를 같은 결과로 보여주면 유저 신뢰도 저하
+
+**분기 기준:**
+```
+USAGE_BASED (confidence: HIGH)
+  → cpu_usage_avg 있음
+  → 모드 A 적용, 과스펙 판단 포함
+
+SPEC_BASED (confidence: MEDIUM)
+  → cpu_usage_avg 없음 (Compute Optimizer 미활성화 or 14일 미도달)
+  → 모드 B 적용, 가격 비교만 제공
+  → "Compute Optimizer 활성화 후 14일이 지나면 정밀 분석 가능" 안내
+```
+
+**트레이드오프:**
+- MEDIUM 표시가 유저에게 불안감을 줄 수 있음
+- 수용 이유: 신뢰도를 숨기는 것보다 명시하는 게 장기 신뢰도에 유리
+
+---
+
+## ADR-016: 인스턴스 비교 정확성 — ARM/버스터블 처리 전략
+
+**날짜:** 2026-03
+
+**배경:**
+같은 vcpu + memory_gb라도 아키텍처와 성능 특성이 다른 케이스가 존재.
+
+**케이스 1 — ARM vs x86:** ✅ 완료 (2026-05, feature/recommendation-engine-upgrade)
+- t3.medium(x86)과 t4g.medium(ARM, Graviton) 모두 vcpu=2, memory=4GB
+- ARM 호환 안 되는 앱에 t4g 추천 시 틀린 추천
+- **구현:** `CloudService`에 `cpu_arch` 필드 추가 (`CpuArch.X86_64` / `CpuArch.ARM64`)
+  - `cloud_service_dto.py`에 `_aws_cpu_arch()`, `_gcp_cpu_arch()`, `_azure_cpu_arch()` 헬퍼 추가
+  - `audit_service.py`에서 추천 후보를 `cpu_arch` 동일한 인스턴스로만 필터링
+  - 필터 후 후보가 없으면 arch 제약 풀어서 fallback 재탐색
+
+**케이스 2 — 버스터블 vs 고정 성능:** ✅ 완료 (2026-05, feature/recommendation-engine-upgrade)
+- t3.medium(버스터블)과 m5.large(고정) 모두 vcpu=2, memory=4GB
+- 지속 부하 시 t3는 크레딧 소진으로 성능 저하 가능
+- **구현:** `CloudService`에 `is_burstable` 필드 추가 (bool)
+  - `cloud_service_dto.py`에 `_aws_is_burstable()`, `_gcp_is_burstable()`, `_azure_is_burstable()` 헬퍼 추가
+  - `audit_service.py`에서 버스터블 여부도 동일하게 매칭 후 fallback
+
+**케이스 3 — GCP 데이터 누락:** ✅ 완료 (2026-05, feature/gcp-spec-dashboard-banner)
+- GCP 일부 머신 타입이 DB에 없으면 비교에서 조용히 빠짐
+- 유저가 "GCP 없음"인지 "GCP가 더 비쌈"인지 구분 불가
+- **구현:** `compare_service.py`에 `ALL_PROVIDERS = {"AWS", "GCP", "AZURE"}` 정의,
+  응답에 `missing_providers` 필드 추가 (결과가 없는 공급자 목록)
+
+---
+
+## ADR-017: 로그 전략 — 이중 로깅 + 구조화 태그
+
+**날짜:** 2026-03
+
+**결정:** Prefect `@task` 내에서 run_logger(Prefect UI)와 Django logger(서버 로그) 둘 다 호출, 구조화 태그로 나중에 파싱 가능하게 설계
+
+**배경:**
+- 현재 Prefect 로그와 Django 로그가 분리되어 장애 추적 어려움
+- Cost Explorer 등 유저 AWS 계정에서 비용 발생하는 API 호출을 별도로 추적해야 함
+
+**구현 (2026-05, feature/reserved-spot-pricing):** ✅ 완료
+
+이중 로깅 패턴 — `pipeline/tasks/` 전체 표준화:
+```python
+# 모듈 레벨 (헬퍼 함수, @task 밖에서 호출되는 코드)
+_logger = logging.getLogger(__name__)
+
+# @task 함수 내부 (Prefect UI 노출)
+@task
+def some_task():
+    logger = get_run_logger()
+```
+
+**실제 구현된 태그 체계:**
+
+| 태그 | 위치 | 의미 |
+|---|---|---|
+| `[EXTRACT_EVENT]` | extract/aws.py, gcp.py, azure.py | API 호출 완료 / 캐시 히트 |
+| `[RAW_EVENT]` | load/raw.py | Snapshot 저장 / 중복 skip |
+| `[NORMALIZE_EVENT]` | transform/normalize.py | 청크 처리 / 완료 |
+| `[VALIDATE_SKIP]` | transform/validate.py | 비정상값 skip |
+| `[VALIDATE_SUMMARY]` | transform/validate.py | 검증 결과 요약 |
+| `[VALIDATE_DONE]` | transform/validate.py | 검증 완료 |
+| `[BILLING_EVENT]` | load/prices.py | 가격 데이터 적재 |
+| `[INVENTORY_EVENT]` | load/inventory.py | 인벤토리 bulk 처리 |
+
+초기 계획(RETRY_ERROR, PERM_ERROR, ABUSE_ALERT 태그)은 미구현 — 배포 후 필요 시 추가.
+
+**확장 방향:** 구조화 태그 포맷(`[TAG] key=value`)을 지금부터 사용해두면 배포 후 AWS CloudWatch Logs Metric Filter 또는 Loki 쿼리로 즉시 전환 가능.
+
+**트레이드오프:**
+- 로그 호출이 2배로 늘어나 코드가 약간 번거로움
+- 수용 이유: 1인 운영 환경에서 장애 추적 가능성이 코드 간결함보다 중요
+
+---
+
+## ADR-018: AI 컨설팅 채팅 — WebSocket 대신 HTTP + 프론트 히스토리 관리
+
+**날짜:** 2026-05
+
+**결정:** 멀티턴 채팅을 WebSocket 없이 HTTP 요청 + 프론트엔드 히스토리 배열로 구현
+
+**배경:**
+- 기존 컨설팅 기능은 질문 1번 → 결과 출력 방식으로, 클라우드 모르는 유저가 추가 질문을 하지 못함
+- 채팅 방식 전환이 필요하다고 판단
+
+**검토한 대안:**
+- WebSocket (Django Channels): 실시간 스트리밍 가능 — ChatGPT처럼 타이핑 효과 구현 가능
+- HTTP + 프론트 히스토리: 응답 완성 후 한 번에 표시, 구현 단순
+
+**HTTP 선택 이유:**
+- 답변이 나오기까지 2~3초 기다렸다가 한 번에 보여주는 방식으로 UX 충분
+- Django Channels 추가 없이 기존 DRF 구조 그대로 활용
+- 대화 맥락은 프론트에서 history 배열을 관리하고 매 요청마다 함께 전송
+- Gemini `model.start_chat(history=[...])` 멀티턴 API 활용
+
+**WebSocket이 필요한 경우:** 응답이 타이핑되듯 스트리밍으로 나오게 하려면 그때 도입
+
+**트레이드오프:**
+- 응답이 한 번에 표시되어 "로딩 중" UX가 필요
+- 수용 이유: 현 단계에서 단순성이 더 중요
+
+---
+
+## ADR-019: AI 컨설팅 채팅 — 단순 질답 방식에서 멀티턴으로 전환한 이유
+
+**날짜:** 2026-05
+
+**결정:** 컨설팅 기능을 1회성 질문 → 채팅 방식으로 전환
+
+**배경:**
+- 서비스 타겟이 "클라우드 모르는 사람도 쓸 수 있게"인데, 1회성 결과만 보여주면 용어를 모르는 유저가 결과를 봐도 이해 못 함
+- "t3.medium이 뭔지, 왜 이게 좋은지" 같은 후속 질문을 할 방법이 없었음
+
+**채팅 방식의 장점:**
+- 대화 맥락이 유지되어 클라우드 용어 모르는 유저도 자연스럽게 필요한 정보를 끌어낼 수 있음
+- 유저 상황에 맞춰 점진적으로 스펙을 구체화할 수 있음
+- 후속 질문("AWS 말고 더 싼 거 없나요?")에 맥락을 유지한 채 답변 가능
+
+**서버 비용 영향:**
+- Gemini 2.5 Flash 기준 채팅 1턴 ≈ $0.0005 미만 (입력 1,000토큰 + 출력 500토큰)
+- 유저가 하루 50턴 채팅해도 $0.025 수준 → 사실상 비용 문제 없음
+- 남용 방지: DRF Throttle로 유저당 50회/일 제한 (기존 패턴 그대로)
+
+---
+
+## ADR-020: AI 컨설팅 ↔ AWS 키 등록 온보딩 연결 전략
+
+**날짜:** 2026-05
+
+**결정:** 컨설팅 → 실계정 분석으로 이어지는 연결 구조 설계 (PLG 방식)
+
+**전체 서비스 가치:**
+컨설팅(클라우드 선택) + 실계정 분석(운영 최적화) = "클라우드 선택부터 운영 최적화까지 전 과정 커버"
+기존 도구들은 이 두 단계를 따로 다루거나 한쪽만 다룸.
+
+**user_state 기반 분기:**
+
+| user_state | 조건 | 제공 내용 |
+|---|---|---|
+| NOT_REGISTERED | 키 미등록 | 3사 가격 비교 + 키 등록 유도 |
+| REGISTERED_NO_DATA | 키 등록 + 14일 미도달 | 스펙 기반 비교 (신뢰도: 중간) + 14일 후 정밀 분석 예고 |
+| REGISTERED_WITH_DATA | 키 등록 + 사용률 데이터 있음 | 실계정 기반 분석 (신뢰도: 높음) |
+
+**14일 문제 해결 원칙:**
+"아직 데이터가 없으니 기다리세요"가 아니라 "지금은 가격 비교, 14일 후에는 정밀 분석"으로 단계마다 다른 가치 제공. 유저 이탈 방지.
+
+**온보딩 연결 흐름:**
+```
+채팅으로 추천 받음 → "AWS로 해볼게요" 발언
+  → AI: "AWS Key 등록하시면 자동 관리해드립니다. [AWS Key 등록하기]"
+  → 키 등록 완료 → REGISTERED_NO_DATA 상태로 전환
+  → 14일 후 → REGISTERED_WITH_DATA 상태로 자동 업그레이드
+```
+
+**선택 이유:**
+- 클라우드 모르는 유저 → 채팅으로 시작 → 자연스럽게 AWS 키 등록으로 온보딩
+- 강요 없이 가치를 먼저 제공하는 PLG(Product-Led Growth) 방식
+- 유저가 AI 추천으로 클라우드를 선택했으니 등록 전환율도 높을 것으로 예상
+
+---
+
+## ADR-022: 컨설팅 채팅 응답 — 자유 텍스트에서 JSON 구조화 응답으로 전환
+
+**날짜:** 2026-03
+
+**결정:** `generate_consult_chat()` 반환 타입을 자유 텍스트(str)에서 구조화된 JSON(dict)으로 전환
+
+**배경:**
+- 자유 텍스트 방식에서 Gemini가 system_instruction 제약(이모지 금지, 스토리지 언급 금지, 섹션 제목 금지, 응답 길이 제한)을 반복적으로 무시
+- 키워드 블랙리스트 후처리(`_postprocess_reply`)로 대응했으나 Gemini가 매번 다른 표현으로 우회해 두더지 잡기가 됨
+- 근본 원인: LLM에게 "이 말 하지 마"를 강제하는 것은 구조적으로 불안정
+
+**결정 이유:**
+- JSON 필드(`spec_summary`, `price_comparison`, `architecture_tips`)만 꺼내서 조합하면 Gemini가 스토리지를 어느 필드에 넣어도 해당 필드를 안 쓰면 됨
+- 섹션 제목, 이모지, 길이 초과가 구조적으로 불가능해짐
+- 기존 `_parse_json_response()` 재사용으로 구현 변경 최소화
+
+**구조:**
+```python
+# Gemini 출력
+{
+  "spec_summary": "두뇌 2개, 작업 공간 2GB면 50명이 동시 접속해도 충분합니다.",
+  "price_comparison": "AWS 소규모 서버(t4g.small)가 월 $12.26 (약 1만 8천원)으로 가장 저렴합니다...",
+  "architecture_tips": "트래픽 급증에 대비해 오토스케일링을 미리 설정해두면 좋습니다."
+}
+
+# consult_chat()에서 조합
+reply = "\n\n".join(p for p in [spec_summary, price_comparison, architecture_tips] if p)
+```
+
+**트레이드오프:**
+- JSON 파싱 실패 시 `GeminiAPIError` 발생 — Gemini가 JSON 아닌 응답을 낼 경우 에러 처리 필요
+- 수용 이유: 자유 텍스트보다 에러가 명시적으로 드러나는 게 더 안전, `_parse_json_response`의 ```json 블록 파싱 로직으로 대부분 커버
+
+---
+
+## ADR-021: 컨설팅 UX — 기획 언어 → 인프라 언어 변환 원칙
+
+**날짜:** 2026-05
+
+**결정:** 유저는 기획 언어로 입력, AI는 인프라 언어를 쓰지 않고 가격 중심으로 설명
+
+**배경:**
+클라우드를 모르는 유저는 "인스턴스", "리전", "vcpu" 같은 용어 자체를 모름.
+기술 용어를 그대로 노출하면 첫 화면에서 이탈.
+
+**시스템 프롬프트 규칙:**
+1. vCPU → "두뇌 개수", 메모리 → "작업 공간" + 반드시 체감 결과로 연결 ("N명 동시 접속해도 버벅임 없는 수준")
+2. 인스턴스 타입명 → "소규모 서버(t4g.small)" 형식으로 앞에 역할 설명 추가
+3. 가격은 달러 + 한화 병기 ("$15.18 (약 2만 2천원)"), 환율 1달러 = 1,450원
+4. Reserved Instance → "장기 약정 할인 (약 40% 절감)"으로 항상 언급
+5. "AWS 키 등록" 대신 "AWS 계정을 연결하면"
+6. 숫자(가격, 절감액)는 백엔드에서 제공한 데이터만 사용 — LLM이 직접 계산 금지
+7. S3/Lambda 등 인스턴스 외 서비스 질문 시 1문장 안내 후 인스턴스 비교로 복귀 (MVP 스코프 밖)
+
+**트레이드오프:**
+- 기술 용어를 안 쓰면 고급 유저에게 정보가 부족할 수 있음
+- 수용 이유: 타겟이 클라우드 입문자. 고급 유저는 대시보드/AI추천 탭에서 기술 정보 확인 가능
+- S3/DB/CDN 비용 비교는 향후 확장 포인트로 남김

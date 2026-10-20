@@ -1,0 +1,59 @@
+import logging
+from decimal import Decimal
+
+from prefect import get_run_logger, task
+
+from apps.core.dto.inventory_dto import EC2InventoryDTO
+from apps.core.utils.region_mapper import normalize_region
+from pipeline.raw.models import RawEC2Snapshot
+
+_logger = logging.getLogger(__name__)
+
+
+@task
+def normalize_inventory(snapshot: RawEC2Snapshot, chunk_size: int = 100) -> list[EC2InventoryDTO]:
+    logger = get_run_logger()
+    instances = snapshot.payload.get("instances", [])
+    dtos = []
+    skipped = 0
+    for i in range(0, len(instances), chunk_size):
+        chunk = instances[i : i + chunk_size]
+        for inst in chunk:
+            instance_type = inst.get("instance_type", "")
+            region = inst.get("region", "")
+
+            try:
+                region_normalized = normalize_region(region)
+            except ValueError:
+                logger.warning(
+                    "[NORMALIZE_EVENT] type=region_skip instance_id=%s region=%s",
+                    inst.get("instance_id"),
+                    region,
+                )
+                skipped += 1
+                continue
+
+            dtos.append(
+                EC2InventoryDTO(
+                    resource_id=inst.get("instance_id", ""),
+                    instance_type=instance_type,
+                    region=region,
+                    region_normalized=region_normalized,
+                    vcpu=inst.get("vcpu", 0),
+                    memory_gb=Decimal(str(inst.get("memory_gb", 0))),
+                    current_monthly_cost=Decimal(str(inst.get("monthly_cost", 0))),
+                    cpu_usage_avg=(
+                        Decimal(str(inst["cpu_usage_avg"]))
+                        if inst.get("cpu_usage_avg") is not None
+                        else None
+                    ),
+                    cost_fetched_at=inst.get("cost_fetched_at"),
+                )
+            )
+        logger.debug(
+            "[NORMALIZE_EVENT] type=chunk_done progress=%d/%d",
+            min(i + chunk_size, len(instances)),
+            len(instances),
+        )
+    logger.info("[NORMALIZE_EVENT] type=done total=%d skipped=%d", len(dtos), skipped)
+    return dtos

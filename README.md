@@ -1,62 +1,591 @@
-# cloud-spec-auditor
-AWS 빌링 데이터와 CloudWatch 지표를 Gemini AI로 분석하여 오버스펙을 찾아내는 비용 최적화 솔루션
+# CostCutter
 
+> AWS Key 한 번 등록으로 클라우드 과스펙을 자동 감지하고 AWS / GCP / Azure 3사 비교 기반 절감 솔루션을 제공하는 FinOps 서비스
 
+[![GitHub](https://img.shields.io/badge/GitHub-inu9431%2Fcloud--spec--auditor-181717?logo=github)](https://github.com/inu9431/cloud-spec-auditor)
 
-🚀 CostCutter
+---
 
-AI 기반 클라우드 비용 절감(FinOps) 솔루션
+## 개발 배경
 
-📌 소개
+Discord 봇을 AWS에 배포해 운영하던 중 예상치 못한 클라우드 비용이 발생했습니다. 인프라를 아는 개발자인 내가 이렇다면, 처음 배포하는 사람은 어떨까 — 그게 시작이었습니다.
 
-CostCutter는 사용자의 클라우드 리소스 사용 현황과
-공식 가격 데이터를 결합하여
-AI(Gemini)를 통해 실질적인 비용 절감 대안을 제시하는 서비스입니다.
+기존 FinOps 도구들은 이미 클라우드를 운영 중인 팀을 대상으로 합니다. CostCutter는 **클라우드를 처음 선택하는 단계(AI 컨설팅)부터 운영 최적화(실계정 자동 분석)까지** 하나의 흐름으로 연결하는 데 집중했습니다.
 
-✨ 핵심 기능
+---
 
-AWS / GCP / Azure 공식 가격 API 연동
+## 목차
 
-리전 정규화를 통한 멀티 클라우드 비교
+- [서비스 소개](#서비스-소개)
+- [기술 스택](#기술-스택)
+- [시스템 아키텍처](#시스템-아키텍처)
+- [데이터 파이프라인 — Bronze / Silver / Gold](#데이터-파이프라인--bronze--silver--gold)
+- [전체 데이터 흐름](#전체-데이터-흐름)
+- [핵심 기능](#핵심-기능)
+- [보안 설계](#보안-설계)
+- [API 목록](#api-목록)
+- [아키텍처 의사결정](#아키텍처-의사결정)
+- [시스템 고려사항 및 트러블슈팅](#시스템-고려사항-및-트러블슈팅)
+- [대용량 파이프라인 부하 분석](#대용량-파이프라인-부하-분석)
+- [시작하기](#시작하기)
 
-사용자 인벤토리 기반 과금 낭비 진단
+---
 
-AI 기반 절감 시나리오 생성
+## 서비스 소개
 
-🏗 아키텍처 요약
-Client
+AWS를 사용하는 스타트업 팀과 클라우드를 처음 접하는 개발자를 대상으로, 두 가지 방식으로 클라우드 비용 최적화를 지원합니다.
+
+### 방식 1 — AI 컨설팅 채팅 (클라우드 몰라도 OK)
+
+클라우드 경험이 없어도 채팅으로 인프라 추천을 받을 수 있습니다.
+
+```
+유저: 쇼핑몰 만들건데 초기에 작게 시작하고 싶어요
+AI:  예상 월 방문자 수가 있으신가요? 규모에 따라 최적 인스턴스가 달라져요.
+유저: 잘 모르겠어요. 처음엔 소규모로요
+AI:  그러면 AWS t3.small로 시작하시면 월 $15 수준이에요.
+     GCP e2-small이 월 $11로 더 저렴한데, 국내 레이턴시가 약간 높을 수 있어요.
+     [AWS 키 등록하면 실제 사용량 분석도 해드릴게요 →]
+```
+
+- 대화 맥락이 유지되는 멀티턴 채팅 (HTTP + Gemini 멀티턴)
+- 클라우드 용어를 몰라도 자연어로 질문 가능
+- 추천 결과에서 AWS 키 등록으로 자연스러운 온보딩 연결
+
+### 방식 2 — 실계정 자동 분석 (AWS Key 등록 후)
+
+```
+AWS Key 1회 등록
+      ↓
+EC2 + Cost Explorer + Compute Optimizer 자동 수집 (24h)
+      ↓
+AWS / GCP / Azure 3사 가격 자동 비교 (주 1회)
+      ↓
+Gemini AI 과스펙 진단 + 절감 추천 자동 생성
+      ↓
+유저: Next.js 대시보드에서 결과 확인
+```
+
+**핵심 포인트**
+- 유저는 AWS Key만 등록하면 이후 모든 과정이 자동화
+- 단순 가격 비교가 아닌 실제 사용률(Compute Optimizer 14일 분석) 기반 진단
+- 3사 동일 스펙 비교로 클라우드 전환 시 절감 효과 수치 제시
+- AI 컨설팅 채팅과 실계정 분석이 연결되어 온보딩 흐름 완성
+
+---
+
+## 기술 스택
+
+| 분류 | 기술 |
+|---|---|
+| 백엔드 | Django 6.0, Django REST Framework |
+| 데이터베이스 | PostgreSQL |
+| AI | Gemini API (gemini-2.5-flash) |
+| 파이프라인 오케스트레이션 | Prefect (`@task` / `@flow` / 스케줄 / UI) |
+| 비동기 큐 | django-q2 |
+| 클라우드 연동 | AWS boto3, GCP (Cloud Billing API, Compute Engine API), Azure (Retail Prices API, azure-mgmt-compute) |
+| 인증 | JWT (djangorestframework-simplejwt) |
+| 보안 | django-encrypted-model-fields (Fernet 암호화), DRF Throttle |
+| 캐시 | Django FileBasedCache |
+| 패키지 관리 | uv |
+| 컨테이너 | Docker Compose (db / web / qcluster / prefect / prefect-worker) |
+| 프론트엔드 | Next.js 14 (App Router), Tailwind CSS, shadcn/ui |
+
+---
+
+## 시스템 아키텍처
+
+### 계층 분리 원칙
+
+서비스 레이어와 데이터 레이어를 명확하게 분리하고, 두 레이어가 `UserInventory`, `CloudService` 모델에서 만나는 구조입니다.
+
+```
+┌──────────────────────────────────────────────┐
+│  Service Layer  (apps/)                      │
+│  유저 요청 → Serializer → Service → Model    │
+│  REST API 서빙 / JWT 인증 / CRUD             │
+└──────────────────┬───────────────────────────┘
+                   │  공유 모델
+                   │  UserInventory — pipeline이 적재, apps가 서빙
+                   │  CloudService  — pipeline이 적재, apps가 비교 API로 서빙
+┌──────────────────┴───────────────────────────┐
+│  Pipeline Layer  (pipeline/)                 │
+│  외부 API → Extract → Load(raw) →            │
+│  Transform → Load(mart)                      │
+│  Prefect 오케스트레이션 / 스케줄 수집         │
+└──────────────────────────────────────────────┘
+         │
+   apps/core/adapters/  (공유 어댑터)
+   AWS / GCP / Azure / Gemini SDK 호출
+```
+
+### 프로젝트 구조
+
+```
+cloud-spec-auditor/
+│
+├── apps/
+│   ├── core/               - 공통 어댑터, DTO, 유틸, 예외
+│   │   ├── adapters/       - aws_adapter.py, gcp_adapter.py, azure_adapter.py, cloud_price_adapter.py, gemini_adapter.py
+│   │   ├── dto/            - cloud_service_dto.py, inventory_dto.py
+│   │   └── utils/          - region_mapper.py (3사 리전 정규화)
+│   ├── costs/              - 3사 가격 비교 API
+│   ├── inventories/        - 인벤토리 CRUD API
+│   ├── recommendations/    - AI 추천 API
+│   └── users/              - 유저, JWT, CloudCredential
+│
+├── pipeline/
+│   ├── raw/                - RawEC2Snapshot, RawGCPSnapshot, RawAzureSnapshot, RawPriceSnapshot (Append-Only Bronze)
+│   ├── flows/
+│   │   └── inventory_flow.py   - Prefect @flow 오케스트레이션 (AWS/GCP/Azure provider 분기)
+│   └── tasks/
+│       ├── extract/
+│       │   ├── aws.py          - @task AWS API 호출 + 캐시 + 병렬 처리
+│       │   ├── gcp.py          - @task GCP Compute Engine API 호출 + 캐시
+│       │   └── azure.py        - @task Azure VM API 호출 + 캐시
+│       ├── transform/
+│       │   ├── normalize.py    - @task 리전 정규화, DTO 변환
+│       │   └── validate.py     - @task 비정상값 감지, Prefect 로그
+│       └── load/
+│           ├── raw.py          - @task RawSnapshot Append-Only 저장
+│           ├── inventory.py    - @task UserInventory upsert (Silver)
+│           └── prices.py       - @task 가격 검증 + CloudService upsert
+│
+├── frontend/               - Next.js 대시보드
+│   ├── app/
+│   │   ├── login/          - 로그인 페이지
+│   │   ├── signup/         - 회원가입 페이지
+│   │   ├── dashboard/      - 인스턴스 목록 + 비용 요약
+│   │   ├── consulting/     - AI 컨설팅 채팅 (멀티턴)
+│   │   ├── recommendations/ - AI 절감 추천 결과
+│   │   └── credentials/    - AWS 키 등록/관리
+│   └── lib/api.ts          - Django REST API 클라이언트
+│
+├── docs/
+│   ├── ARCHITECTURE.md     - 상세 아키텍처 설계
+│   ├── DECISIONS.md        - 아키텍처 의사결정 기록 (ADR)
+│   ├── TROUBLESHOOTING.md  - 트러블슈팅 기록 + 대용량 부하 분석
+│   ├── ONBOARDING_IAM.md   - AWS IAM 최소 권한 설정 가이드
+│   └── PITCH.md            - 서비스 소개 및 강점 (공모전/포트폴리오용)
+│
+└── costcut/                - Django 설정
+```
+
+---
+
+## 데이터 파이프라인 — Bronze / Silver / Gold
+
+### 왜 ETL이 아닌 ELT인가?
+
+**원본 데이터를 먼저 저장(Load)**하고 이후에 변환(Transform)하는 구조입니다.
+
+| | ETL | CostCutter (ELT) |
+|---|---|---|
+| 순서 | Extract → Transform → Load | Extract → **Load(raw)** → Transform → Load |
+| 원본 보관 | 변환 후 소실 | Bronze 테이블에 원본 영구 보존 |
+| Backfill | Transform 로직 변경 시 재수집 필요 | Raw payload로 언제든 재처리 가능 |
+
+> API 응답 구조가 바뀌거나 AI 분석 프롬프트가 변경되어도, raw 원본이 있으므로 **서비스 중단 없이 로직만 수정해 Backfill 가능**
+
+### ELT 흐름
+
+```
+[E]  extract/aws.py
+     AWS API 4개 조합 호출 + 레이어별 캐시
+     ├ EC2 describe_instances()           → 실행 중인 인스턴스 목록  (캐시 1h)
+     ├ Cost Explorer get_cost_and_usage() → 이번 달 실제 청구 비용  (캐시 24h)
+     ├ Compute Optimizer                  → 14일 분석 기반 과스펙 판단 (캐시 12h)
+     └ describe_instance_types()          → vcpu, memory_gb 동적 조회 (캐시 7일)
+
+[L-raw]  load/raw.py  ← Bronze Layer
+     raw dict → RawEC2Snapshot.create()
+     SHA-256 payload_hash 기반 중복 방지 (Append-Only)
+
+[T]  transform/normalize.py
+     RawSnapshot.payload → EC2InventoryDTO 변환
+     ap-northeast-2 → KR 리전 정규화
+
+[T]  transform/validate.py
+     vcpu=0 / memory=0 / cost > 10,000 등 비정상값 필터링
+     이상값은 Prefect UI에 warning 로그 기록
+
+[L-mart]  load/inventory.py  ← Silver Layer
+     EC2InventoryDTO → UserInventory.update_or_create()
+```
+
+### 데이터 계층 구조
+
+| 계층 | 테이블 | 쓰기 방식 | 목적 |
+|---|---|---|---|
+| Bronze (Raw) | RawEC2Snapshot, RawGCPSnapshot, RawAzureSnapshot, RawPriceSnapshot | Append-Only | 원본 보존, Backfill |
+| Silver (Mart) | UserInventory, CloudService | update_or_create | 서비스 서빙용 정제 데이터 |
+| Gold (Analytics) | Recommendation, RecommendationItem | create | AI 분석 결과 |
+
+### Raw 테이블 설계 원칙
+
+- **Append-Only**: create만 사용, update/upsert 금지 — 특정 시점 데이터 재처리 보장
+- **Hash 기반 중복 제거**: payload_hash(SHA-256) 동일하면 저장 생략 — 의미 없는 I/O 제거
+- **Retention**: Hot(3개월 이내 PostgreSQL) / Cold(3개월 이후 S3 아카이빙)
+
+### Prefect 오케스트레이션
+
+각 ELT 단계를 `@task`로, 전체 흐름을 `@flow`로 감싸 Prefect UI(localhost:4200)에서 단계별 실행 이력과 경고 로그를 확인합니다.
+
+```python
+@flow(name="sync-user-inventory")   # 24h 자동 스케줄
+def sync_user_inventory(credential_id):
+    # provider에 따라 AWS / GCP / AZURE 파이프라인 분기
+    if credential.provider == Provider.AWS:
+        _aws_pipeline(credential)    # E → L-raw(Bronze) → T → L-mart(Silver) → audit(Gold)
+    elif credential.provider == Provider.GCP:
+        _gcp_pipeline(credential)    # E → L-raw(Bronze) → DTO 변환 → L-mart(Silver) → audit
+    elif credential.provider == Provider.AZURE:
+        _azure_pipeline(credential)  # E → L-raw(Bronze) → DTO 변환 → L-mart(Silver) → audit
+
+@flow(name="sync-cloud-prices")     # 주 1회 자동
+def sync_cloud_prices():
+    # 3사 가격 ELT: fetch → save_raw_price → validate_prices → load_prices
+```
+
+---
+
+## 전체 데이터 흐름
+
+### Step 1 — 백엔드 검증 (Service Layer)
+
+```
+Client: AWS Credential 입력
+  → Django URLs → DRF Serializer (유효성 검사)
+  → ORM: CloudCredential 저장 (암호화 필드)
+```
+
+### Step 2 — 자동 수집 (Pipeline Layer, 24h)
+
+```
+Prefect Scheduler 트리거
+  → extract_ec2_instances(credential)
+  │   ├ EC2 API    → i-abc123, t3.medium, ap-northeast-2
+  │   ├ Cost Explorer → $45.2/월
+  │   ├ Compute Optimizer → cpu_usage_avg: 12.5%, OVER_PROVISIONED
+  │   └ describe_instance_types → vcpu: 2, memory: 4GB
   ↓
-View / Serializer
+  → save_raw_ec2()  [Bronze: Append-Only + Hash 중복 제거]
   ↓
-Service Layer
+  → normalize() → validate()  [DTO 변환 + 비정상값 필터]
   ↓
-Adapter (Cloud / AI)
-  ↓
-Model (PostgreSQL)
+  → load_inventory()  [Silver: UserInventory.update_or_create()]
+```
 
-🌍 Region Normalization
+### Step 3 — AI 분석 (Gold Layer)
 
-각 클라우드의 서로 다른 리전 체계를
-NormalizedRegion으로 통합하여 정확한 가격 비교를 가능하게 합니다.
+```
+UserInventory 저장 완료 → audit 트리거
+  ├ UserInventory 조회  → t3.medium / $45.2/월 / CPU 12.5%
+  ├ CloudService 3사 비교
+  │   AWS  t3.medium  $30/월
+  │   GCP  e2-medium  $24/월
+  │   Azure B2s       $30/월
+  │
+  ├ Python: 절감액 계산 ($45.2 - $22 = $23.2/월)  ← LLM에게 숫자 계산 위임하지 않음
+  └ Gemini: 설명 생성
+      "CPU 12.5% 과스펙. t3.small 전환 시 $23/월 절감.
+       GCP e2-small 전환 시 추가 절감 가능."
+        ↓
+      Recommendation + RecommendationItem 저장 (Gold)
+```
 
-🔧 기술 스택
+### Step 4 — 유저 확인
 
-Backend: Django, DRF
+```
+GET /api/recommendations/
+→ 현재 비용: $45.2/월
+  절감 가능: $27.2/월 (60%)
+  추천 1: t3.small 다운그레이드 → $22/월
+  추천 2: GCP e2-small 전환    → $18/월
+```
 
-Database: PostgreSQL, Redis
+---
 
-AI: Gemini API
+## 보안 설계
 
-Cloud SDK: Boto3
+### AWS Key 암호화
 
-Infra: Docker, AWS EC2, Nginx
+`CloudCredential` 모델의 민감 필드를 `django-encrypted-model-fields` (Fernet 대칭 암호화)로 저장합니다. DB 덤프가 유출되어도 암호화 키 없이는 복호화 불가능합니다.
 
-📄 문서
+**암호화 대상 필드:**
+- `aws_access_key_id` / `aws_secret_access_key`
+- `gcp_service_account_json`
+- `azure_client_secret`
 
-아키텍처 설계 문서
+### API 남용 방지 (DRF Throttle)
 
-🚧 현재 상태
+봇이 sync/audit를 반복 호출하면 **유저 AWS 계정에서 Cost Explorer API 비용이 발생**하고 Gemini API 비용이 선형으로 증가합니다. 단순 서버 보호가 아닌 고객 보호 차원의 설계입니다.
 
-아키텍처 설계 완료
+| 엔드포인트 | 기준 | 제한 | 이유 |
+|---|---|---|---|
+| `POST /api/users/login/` | IP | 10회/분 | brute force 차단 |
+| `POST /api/users/signup/` | IP | 10회/시간 | 계정 대량 생성 차단 |
+| `POST /api/inventories/sync/` | 유저 | 1회/10분 | 유저 AWS 비용 + 큐 폭발 방지 |
+| `POST /api/recommendations/audit/` | 유저 | 1회/5분 | Gemini API 비용 방지 |
+| `POST /api/costs/sync/*/` | 전역 | 1회/1시간 | 가격 DB는 공유 자원 |
 
-MVP 개발 진행 중
+### IAM 최소 권한 원칙
+
+유저에게 아래 4개 Action만 허용하도록 온보딩 가이드에서 안내합니다. (`docs/ONBOARDING_IAM.md`)
+
+```json
+{
+  "Action": [
+    "ec2:DescribeInstances",
+    "ec2:DescribeInstanceTypes",
+    "ce:GetCostAndUsage",
+    "compute-optimizer:GetEC2InstanceRecommendations"
+  ]
+}
+```
+
+키 등록 후 `POST /api/users/credentials/<pk>/test/`로 권한을 즉시 검증합니다.
+
+---
+
+## 핵심 기능
+
+### 인증 & 보안
+- JWT 인증 (회원가입/로그인/로그아웃)
+- AWS Key Fernet 암호화 저장 (`django-encrypted-model-fields`)
+- Credential Validation API — 등록 직후 IAM 권한 자동 검증
+- DRF Throttle — sync/audit 유저별 쿨다운, 고객 AWS 계정 비용 보호
+
+### 데이터 수집 파이프라인
+- AWS EC2 + Cost Explorer + Compute Optimizer 24h 자동 수집
+- GCP Compute Engine / Azure VM 인벤토리 수집
+- ELT 구조 (Bronze Raw → Silver Mart) + Prefect 오케스트레이션
+- SHA-256 payload_hash 기반 중복 제거, 비정상값 감지 + Prefect 로그
+
+### 가격 비교 & AI 분석
+- AWS / GCP / Azure 3사 On-Demand / Reserved 가격 수집 및 비교
+- CPU 사용률 기반 분석 분기: RIGHTSIZING(과스펙) / SWITCH_PROVIDER(동일 스펙)
+- Python이 절감액 계산, Gemini는 설명만 생성 (LLM 역할 분리)
+- cpu_arch / is_burstable 기준 동일 아키텍처 인스턴스만 비교
+
+### AI 컨설팅 채팅
+- 클라우드 비전문가 대상 멀티턴 채팅 (Gemini history 배열 방식)
+- user_state 3분기: 미등록 / 키 등록 후 데이터 수집 전 / 실계정 데이터 보유
+- JSON 구조화 응답으로 LLM 프롬프트 제약 우회 문제 근본 해결
+
+### 테스트
+- pytest 핵심 비즈니스 로직 테스트 (AAA 패턴, DB 픽스처, GeminiAdapter mock)
+- Prefect `@task` `.fn()` 우회 테스트, `monkeypatch` 외부 의존성 격리
+
+---
+
+## API 목록
+
+<details>
+<summary>전체 API 보기</summary>
+
+### 인증
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/api/users/signup/` | 회원가입 |
+| POST | `/api/users/login/` | 로그인 (JWT 발급) |
+| POST | `/api/users/logout/` | 로그아웃 |
+
+### AWS 연동
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/api/users/credentials/` | AWS Key 직접 입력 |
+| POST | `/api/users/credentials/csv/` | IAM CSV 파일 업로드 |
+| GET | `/api/users/credentials/` | 등록된 자격증명 목록 |
+| POST | `/api/users/credentials/<pk>/test/` | 권한 검증 (ec2 / cost_explorer / compute_optimizer) |
+
+### 인벤토리
+| Method | Endpoint | 설명 |
+|---|---|---|
+| GET | `/api/inventories/` | 내 인스턴스 목록 |
+| POST | `/api/inventories/sync/` | 수동 재수집 트리거 (즉시 202 반환) |
+
+### 비용 비교
+| Method | Endpoint | 설명 |
+|---|---|---|
+| GET | `/api/costs/instance-compare/` | 3사 동일 스펙 가격 비교 |
+| POST | `/api/costs/sync/aws/` | AWS 가격 수동 최신화 |
+| POST | `/api/costs/sync/gcp/` | GCP 가격 수동 최신화 |
+| POST | `/api/costs/sync/azure/` | Azure 가격 수동 최신화 |
+
+### AI 추천
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/api/recommendations/audit/` | AI 진단 실행 |
+| GET | `/api/recommendations/` | 추천 결과 조회 |
+
+### AI 컨설팅 채팅
+| Method | Endpoint | 설명 |
+|---|---|---|
+| POST | `/api/recommendations/consult/` | 멀티턴 컨설팅 채팅 (대화 히스토리 포함) |
+
+</details>
+
+---
+
+## 아키텍처 의사결정
+
+자세한 내용은 `docs/DECISIONS.md` 참고
+
+### 왜 CloudWatch 대신 Compute Optimizer?
+
+CloudWatch를 직접 호출하면 유저 수 증가 시 **유저의 AWS 계정에서 API 비용이 선형으로 증가**합니다.
+
+Compute Optimizer는 AWS가 내부적으로 14일치 지표를 분석해 라이트사이징 추천을 제공하며, 별도 호출 비용이 없습니다. 유저는 자신의 AWS 계정에서 Compute Optimizer를 1회 활성화(무료)하면 됩니다.
+
+### 왜 ETL이 아닌 ELT?
+
+AI Audit 프롬프트나 정규화 로직이 바뀌었을 때 ETL은 재수집이 필요합니다. ELT는 Raw 원본을 보존하므로 **서비스 중단 없이 로직만 수정해 Backfill**할 수 있습니다.
+
+### 왜 Airflow 대신 Prefect?
+
+- 1인 개발 환경에서 Airflow는 메타DB, 웹서버, 스케줄러 등 별도 인프라가 과도함
+- `@task` / `@flow` 데코레이터만으로 기존 함수를 DAG으로 전환 가능
+- `prefect server start` 한 줄로 로컬 UI(localhost:4200) 실행 — 별도 Docker 불필요
+
+### 왜 인스턴스 스펙을 하드코딩하지 않는가?
+
+기존 `EC2_INSTANCE_SPECS` 딕셔너리(18개 타입 한정) 대신 AWS `describe_instance_types()` API를 사용해 **모든 인스턴스 타입의 스펙을 동적으로 조회**합니다. t4g, c6i, m7g 등 신규 타입도 자동 지원됩니다.
+
+### 왜 sync/audit에 Throttle이 필요한가?
+
+API Rate Limit은 서버 보호만이 목적이 아닙니다. sync 엔드포인트는 유저 AWS 계정의 Cost Explorer를 호출하기 때문에, 봇이 반복 호출하면 **고객의 AWS 계정에서 비용이 발생**합니다. 고객 보호 차원에서 유저별 쿨다운이 필요합니다.
+
+---
+
+## 시스템 고려사항 및 트러블슈팅
+
+자세한 내용은 `docs/TROUBLESHOOTING.md` 참고
+
+### 발견한 문제와 해결 방향
+
+| 문제 | 원인 | 해결 방향 | 상태 |
+|---|---|---|---|
+| 원본 데이터 부재 → Backfill 불가 | ETL 구조, 가공 후 원본 소실 | ELT 전환 + Bronze Raw 테이블 도입 | ✅ 완료 |
+| AWS Key 평문 저장 | 모델 필드 타입 미적용 | `django-encrypted-model-fields` (Fernet) | ✅ 완료 |
+| `get_monthly_cost()` 예외 시 전체 파이프라인 실패 | AccessDeniedException 구분 없이 raise | AccessDeniedException → 0.0 반환 + warning | ✅ 완료 |
+| 인스턴스 1개 실패 시 전체 실패 | Partial Failure 처리 없음 | bulk_create/bulk_update + 인스턴스별 skip | ✅ 완료 |
+| sync 남용 시 유저 AWS 비용 발생 | Rate Limit 없음 | DRF Throttle (유저별 1회/10분) | ✅ 완료 |
+| Gemini 동시 트리거 → 비용 폭발 | 수집 완료 직후 모두 실행 | 순차 실행 + Partial Failure 허용 | ✅ 완료 |
+| LLM이 숫자 계산 → 오류 가능 | 절감액 계산을 Gemini에 위임 | Python 계산 → LLM은 설명만 | ✅ 완료 |
+| Gemini 실패 시 audit 중단 | 예외 처리 없음 | GeminiAPIError → fallback 메시지 | ✅ 완료 |
+| AWS API 순차 호출 → 느림 | 인스턴스별 직렬 호출 | ThreadPoolExecutor(max_workers=5) | ✅ 완료 |
+| Cost Explorer 인스턴스별 개별 호출 | 건별 API 호출 | GroupBy로 1회 호출 통합 | ✅ 완료 |
+| Cost Explorer RESOURCE_ID GroupBy 미지원 | ValidationException 미처리 → 파이프라인 실패 | ValidationException graceful 처리 → 0.0 반환 | ✅ 완료 |
+| save_raw_ec2 datetime 직렬화 오류 | payload에 datetime 객체 포함 | json.dumps(default=str) 후 재파싱으로 정제 | ✅ 완료 |
+| validate_inventory cost<=0 전체 필터링 | Cost Explorer 미지원 계정에서 모든 인스턴스 제거 | cost<=0 조건 제거 | ✅ 완료 |
+
+### 파이프라인 Graceful Degradation 설계
+
+권한이 부족한 AWS Key를 등록해도 파이프라인이 멈추지 않도록 설계합니다.
+
+```
+EC2 권한 없음 → 수집 자체 불가 (필수 권한, 에러 반환)
+Cost Explorer 권한 없음 → monthly_cost=0.0으로 처리, 나머지 정상 수집
+Compute Optimizer 미활성화 → cpu_usage_avg=None으로 처리, 나머지 정상 수집
+```
+
+---
+
+## 대용량 파이프라인 부하 분석
+
+Docker Compose 로컬 환경에서 더미 데이터 기반 부하 테스트를 실시했습니다. (`docs/TROUBLESHOOTING.md` #018)
+
+### 측정 결과
+
+| 항목 | 결과 |
+|---|---|
+| bulk_create 처리량 | ~28,000 rows/s (규모 무관 일정) |
+| 유저별 인벤토리 조회 | 데이터 40배 증가에도 0.02ms 유지 (인덱스 효과) |
+| 주요 병목 | bcrypt 패스워드 해싱 (시드 스크립트 한정, 실서비스 무관) |
+
+### 병목 지점별 적용된 해결책
+
+| 병목 지점 | 문제 | 적용된 해결책 |
+|---|---|---|
+| Gemini 동시 트리거 | 유저 동시 수집 완료 시 Gemini 비용 폭발 | 순차 처리 + DRF Throttle (유저별 1회/5분) |
+| Cost Explorer 순차 호출 | 인스턴스별 개별 API 호출 → 유저 AWS 비용 발생 | GroupBy로 1회 호출 통합 |
+| DB 적재 성능 | 건별 `update_or_create()` 루프 | `bulk_create` / `bulk_update` 분리 |
+| normalize 메모리 | 전체 리스트 메모리 적재 | 청크 단위 처리 (100건씩) |
+| 스케줄 집중 | 정각에 모든 유저 동시 시작 | `jitter` (enumerate + timedelta) 분산 |
+
+---
+
+## 시작하기
+
+### Docker Compose (권장)
+
+```bash
+# 1. 환경변수 설정
+cp .env.example .env
+# 필수: SECRET_KEY, DB_*, GEMINI_API_KEY, FIELD_ENCRYPTION_KEY
+
+# 2. 전체 서비스 실행 (db / web / qcluster / prefect / prefect-worker)
+docker compose up --build
+
+# Django API:   http://localhost:8002
+# Prefect UI:   http://localhost:4200
+```
+
+### 로컬 개발 환경
+
+```bash
+# 1. 의존성 설치
+uv sync
+
+# 2. 환경변수 설정
+cp .env.example .env
+
+# 3. DB 마이그레이션
+uv run python manage.py migrate
+
+# 4. Prefect 서버 실행 (터미널 1)
+prefect server start
+# UI: http://localhost:4200
+
+# 5. Prefect 스케줄 등록 (최초 1회)
+prefect config set PREFECT_API_URL=http://127.0.0.1:4200/api
+uv run python pipeline/flows/inventory_flow.py
+
+# 6. django-q2 워커 실행 (터미널 2)
+uv run python manage.py qcluster
+
+# 7. 서버 실행 (터미널 3)
+uv run python manage.py runserver
+```
+
+### 검증 순서
+
+```bash
+# 1. AWS Key 등록
+POST /api/users/credentials/csv/
+
+# 2. 권한 검증
+POST /api/users/credentials/<pk>/test/
+# → { "ec2": "OK", "cost_explorer": "OK", "compute_optimizer": "OK" }
+
+# 3. 수동 수집 트리거
+POST /api/inventories/sync/
+
+# 4. AI 진단 실행
+POST /api/recommendations/audit/  { "inventory_id": 1 }
+
+# 5. 추천 결과 확인
+GET /api/recommendations/
+```
+
+### 환경변수 목록
+
+| 변수 | 설명 |
+|---|---|
+| `SECRET_KEY` | Django 시크릿 키 |
+| `DB_NAME / DB_USER / DB_PASSWORD / DB_HOST / DB_PORT` | PostgreSQL 연결 정보 |
+| `GEMINI_API_KEY` | Google Gemini API 키 |
+| `FIELD_ENCRYPTION_KEY` | AWS Key 암호화용 Fernet 키 (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) |
+| `GCP_CREDENTIALS_PATH` | GCP Service Account JSON 경로 (선택) |
+| `PREFECT_API_URL` | Prefect API URL (Docker: `http://prefect:4200/api`, 로컬: `http://127.0.0.1:4200/api`) |

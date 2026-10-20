@@ -1,0 +1,340 @@
+import json
+import time
+from decimal import Decimal
+from typing import List, Optional
+
+from django.conf import settings
+
+import boto3
+import requests
+from google.cloud import billing_v1
+from google.oauth2 import service_account
+
+from apps.core.dto.cloud_service_dto import CloudServiceDTO
+from apps.core.exceptions.cloud_exception import CloudWatchConnectionError
+from apps.core.utils.region_mapper import normalize_region
+from apps.costs.choices import PricingModel, PricingSource
+
+AZURE_PRICING_URL = "https://prices.azure.com/api/retail/prices"
+GCP_COMPUTE_SERVICE = "services/6F81-5844-456A"
+
+# GCP는 SKU가 인스턴스 단위가 아닌 vCPU/RAM 단위로 제공되므로
+# 인스턴스 스펙과 SKU 패밀리 매핑을 별도로 관리
+GCP_MACHINE_SPECS: dict[str, dict] = {
+    # N1
+    "n1-standard-1": {"vcpu": 1, "memory_gb": Decimal("3.75")},
+    "n1-standard-2": {"vcpu": 2, "memory_gb": Decimal("7.5")},
+    "n1-standard-4": {"vcpu": 4, "memory_gb": Decimal("15")},
+    "n1-standard-8": {"vcpu": 8, "memory_gb": Decimal("30")},
+    "n1-standard-16": {"vcpu": 16, "memory_gb": Decimal("60")},
+    # N2
+    "n2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "n2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "n2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "n2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "n2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # N2D (AMD EPYC) — N2와 동일 스펙, AWS m6a 비교 대상
+    "n2d-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "n2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "n2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "n2d-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "n2d-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # E2
+    "e2-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "e2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "e2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "e2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "e2-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # C2 — AWS c 시리즈 비교 대상
+    "c2-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "c2-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "c2-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "c2-standard-30": {"vcpu": 30, "memory_gb": Decimal("120")},
+    "c2-standard-60": {"vcpu": 60, "memory_gb": Decimal("240")},
+    # C2D (AMD EPYC) — AWS c6a 비교 대상
+    "c2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "c2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    "c2d-standard-16": {"vcpu": 16, "memory_gb": Decimal("64")},
+    "c2d-standard-32": {"vcpu": 32, "memory_gb": Decimal("128")},
+    # M1 (memory-optimized) — AWS r 시리즈 비교 대상
+    "m1-standard-4": {"vcpu": 4, "memory_gb": Decimal("26")},
+    "m1-standard-8": {"vcpu": 8, "memory_gb": Decimal("52")},
+    "m1-standard-16": {"vcpu": 16, "memory_gb": Decimal("104")},
+    "m1-standard-32": {"vcpu": 32, "memory_gb": Decimal("208")},
+    # T2D (AMD, scale-out) — AWS t3a 비교 대상
+    "t2d-standard-1": {"vcpu": 1, "memory_gb": Decimal("4")},
+    "t2d-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "t2d-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "t2d-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+    # T2A (ARM Ampere Altra) — AWS t4g 비교 대상
+    "t2a-standard-1": {"vcpu": 1, "memory_gb": Decimal("4")},
+    "t2a-standard-2": {"vcpu": 2, "memory_gb": Decimal("8")},
+    "t2a-standard-4": {"vcpu": 4, "memory_gb": Decimal("16")},
+    "t2a-standard-8": {"vcpu": 8, "memory_gb": Decimal("32")},
+}
+
+# GCP SKU description에서 머신 패밀리를 식별하는 매핑
+GCP_SKU_FAMILY_MAP: dict[str, str] = {
+    "N1 Predefined Instance Core": "n1",
+    "N1 Predefined Instance Ram": "n1",
+    "N2 Instance Core": "n2",
+    "N2 Instance Ram": "n2",
+    "N2D AMD Instance Core": "n2d",
+    "N2D AMD Instance Ram": "n2d",
+    "E2 Instance Core": "e2",
+    "E2 Instance Ram": "e2",
+    "C2 Instance Core": "c2",
+    "C2 Instance Ram": "c2",
+    "C2D AMD Instance Core": "c2d",
+    "C2D AMD Instance Ram": "c2d",
+    "Memory-optimized Instance Core": "m1",
+    "Memory-optimized Instance Ram": "m1",
+    "T2D AMD Instance Core": "t2d",
+    "T2D AMD Instance Ram": "t2d",
+    "T2A Arm Instance Core": "t2a",
+    "T2A Arm Instance Ram": "t2a",
+}
+
+
+class CloudPriceAdapter:
+
+    def _get_with_retry(self, url: str, params: dict, max_retries: int = 3) -> requests.Response:
+        """429 Rate Limit 대응 exponential backoff 재시도"""
+        for attempt in range(max_retries):
+            response = requests.get(url, params=params, timeout=30)
+            if response.status_code == 429:
+                time.sleep(2**attempt)
+                continue
+            response.raise_for_status()
+            return response
+        raise CloudWatchConnectionError("Azure API 재시도 한도 초과")
+
+    def fetch_azure_prices(self, region: str) -> List[CloudServiceDTO]:
+        results = []
+        url = AZURE_PRICING_URL
+        params = {
+            "$filter": (
+                f"armRegionName eq '{region}'"
+                f" and serviceName eq 'Virtual Machines'"
+                f" and priceType eq 'Consumption'"
+            )
+        }
+        while url:
+            response = self._get_with_retry(url, params)
+            data = response.json()
+
+            for item in data.get("Items", []):
+                dto = self._parse_azure_item(item)
+                if dto:
+                    results.append(dto)
+            url = data.get("NextPageLink")
+            params = {}  # NextPageLink에 이미 파라미터 포함됨
+        return results
+
+    def _parse_azure_item(self, item: dict) -> CloudServiceDTO | None:
+        # Window 제외
+        if "Windows" in item.get("skuName", ""):
+            return None
+
+        # 시간당 가격만 처리
+        if item.get("unitOfMeasure") != "1 Hour":
+            return None
+
+        instance_type = item.get("armSkuName", "")
+        if not instance_type:
+            return None
+
+        region = item.get("armRegionName", "")
+
+        try:
+            region_normalized = normalize_region(region)
+        except ValueError:
+            return None
+
+        price_type = item.get("type", "")
+        if price_type == "Consumption":
+            pricing_model = PricingModel.ON_DEMAND
+        elif price_type == "Reservation":
+            pricing_model = PricingModel.RESERVED
+        elif price_type == "Spot":
+            pricing_model = PricingModel.SPOT
+        else:
+            return None
+        return CloudServiceDTO.from_azure(item, region_normalized, pricing_model)
+
+    def fetch_aws_prices(self, region: str) -> List[CloudServiceDTO]:
+        client = boto3.client("pricing", region_name="us-east-1")
+        results = []
+
+        paginator = client.get_paginator("get_products")
+        pages = paginator.paginate(
+            ServiceCode="AmazonEC2",
+            Filters=[
+                {"Type": "TERM_MATCH", "Field": "regionCode", "Value": region},
+                {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": "Linux"},
+                {"Type": "TERM_MATCH", "Field": "tenancy", "Value": "Shared"},
+                {"Type": "TERM_MATCH", "Field": "capacitystatus", "Value": "Used"},
+                {"Type": "TERM_MATCH", "Field": "preInstalledSw", "Value": "NA"},
+            ],
+        )
+
+        for page in pages:
+            for price_str in page["PriceList"]:
+                price_data = json.loads(price_str)
+                results.extend(self._parse_aws_item(price_data))
+        return results
+
+    def _parse_aws_item(self, data: dict) -> List[CloudServiceDTO]:
+        attributes = data.get("product", {}).get("attributes", {})
+
+        instance_type = attributes.get("instanceType", "")
+        if not instance_type:
+            return []
+
+        region = attributes.get("regionCode", "")
+        try:
+            region_normalized = normalize_region(region)
+        except ValueError:
+            return []
+
+        results = []
+
+        # On-Demand 파싱
+        on_demand = data.get("terms", {}).get("OnDemand", {})
+        if on_demand:
+            price_dimensions = list(on_demand.values())[0].get("priceDimensions", {})
+            price_usd = list(price_dimensions.values())[0].get("pricePerUnit", {}).get("USD", "0")
+            if Decimal(price_usd) > 0:
+                results.append(CloudServiceDTO.from_aws(attributes, region_normalized, price_usd))
+
+        # Reserved 1년 No Upfront 파싱
+        reserved_dto = self._parse_aws_reserved(attributes, region_normalized, data)
+        if reserved_dto:
+            results.append(reserved_dto)
+
+        return results
+
+    def _parse_aws_reserved(
+        self, attributes: dict, region_normalized: str, data: dict
+    ) -> CloudServiceDTO | None:
+        reserved_terms = data.get("terms", {}).get("Reserved", {})
+        if not reserved_terms:
+            return None
+
+        for term in reserved_terms.values():
+            attrs = term.get("termAttributes", {})
+            if (
+                attrs.get("LeaseContractLength") == "1yr"
+                and attrs.get("PurchaseOption") == "No Upfront"
+                and attrs.get("OfferingClass") == "standard"
+            ):
+                price_dims = term.get("priceDimensions", {})
+                for dim in price_dims.values():
+                    # No Upfront은 Hrs 단위 항목이 시간당 비용
+                    if dim.get("unit") == "Hrs":
+                        price_usd = dim.get("pricePerUnit", {}).get("USD", "0")
+                        if Decimal(price_usd) > 0:
+                            return CloudServiceDTO.from_aws(
+                                attributes,
+                                region_normalized,
+                                price_usd,
+                                pricing_model=PricingModel.RESERVED,
+                            )
+        return None
+
+    def fetch_gcp_prices(self, region: str) -> List[CloudServiceDTO]:
+        credentials = service_account.Credentials.from_service_account_file(
+            settings.GCP_CREDENTIALS_PATH,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        client = billing_v1.CloudCatalogClient(credentials=credentials)
+
+        cpu_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_vcpu}
+        ram_prices: dict[str, Decimal] = {}  # {family: on-demand price_per_gb}
+        cud1yr_cpu: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_vcpu}
+        cud1yr_ram: dict[str, Decimal] = {}  # {family: 1yr CUD price_per_gb}
+
+        for sku in client.list_skus(parent=GCP_COMPUTE_SERVICE):
+            if region not in list(sku.service_regions):
+                continue
+
+            usage_type = sku.category.usage_type
+            if usage_type not in ("OnDemand", "Commit1Yr"):
+                continue
+
+            desc = sku.description
+            family = next((f for key, f in GCP_SKU_FAMILY_MAP.items() if key in desc), None)
+            if family is None:
+                continue
+
+            unit_price = self._extract_gcp_unit_price(sku)
+            if unit_price is None:
+                continue
+
+            is_core = "Core" in desc
+            is_ram = "Ram" in desc
+
+            if usage_type == "OnDemand":
+                if is_core:
+                    cpu_prices[family] = unit_price
+                elif is_ram:
+                    ram_prices[family] = unit_price
+            else:  # Commit1Yr
+                if is_core:
+                    cud1yr_cpu[family] = unit_price
+                elif is_ram:
+                    cud1yr_ram[family] = unit_price
+
+        try:
+            region_normalized = normalize_region(region)
+        except ValueError:
+            return []
+
+        results = []
+        for machine_type, specs in GCP_MACHINE_SPECS.items():
+            family = machine_type.split("-")[0]
+            vcpu = specs["vcpu"]
+            memory_gb = specs["memory_gb"]
+
+            # On-Demand
+            cpu_p = cpu_prices.get(family)
+            ram_p = ram_prices.get(family)
+            if cpu_p is not None and ram_p is not None:
+                results.append(
+                    CloudServiceDTO.from_gcp(
+                        machine_type=machine_type,
+                        region=region,
+                        region_normalized=region_normalized,
+                        vcpu=vcpu,
+                        memory_gb=memory_gb,
+                        price_per_hour=cpu_p * vcpu + ram_p * memory_gb,
+                    )
+                )
+
+            # 1년 CUD (Committed Use Discount)
+            cud_cpu = cud1yr_cpu.get(family)
+            cud_ram = cud1yr_ram.get(family)
+            if cud_cpu is not None and cud_ram is not None:
+                results.append(
+                    CloudServiceDTO.from_gcp(
+                        machine_type=machine_type,
+                        region=region,
+                        region_normalized=region_normalized,
+                        vcpu=vcpu,
+                        memory_gb=memory_gb,
+                        price_per_hour=cud_cpu * vcpu + cud_ram * memory_gb,
+                        pricing_model=PricingModel.RESERVED,
+                    )
+                )
+
+        return results
+
+    def _extract_gcp_unit_price(self, sku) -> Decimal | None:
+        if not sku.pricing_info:
+            return None
+        tiers = sku.pricing_info[0].pricing_expression.tiered_rates
+        if not tiers:
+            return None
+        units = tiers[0].unit_price.units
+        nanos = tiers[0].unit_price.nanos
+        return Decimal(str(units)) + Decimal(str(nanos)) / Decimal("1_000_000_000")

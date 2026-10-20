@@ -1,9 +1,20 @@
 from django.urls import path
 
-from apps.users.views import LoginView, LogoutView, SignupView
+from apps.users.views import (
+    CloudCredentialCSVView,
+    CloudCredentialTestView,
+    CloudCredentialView,
+    LoginView,
+    LogoutView,
+    SignupView,
+)
 
+# api/users/signup
 urlpatterns = [
     path("signup/", SignupView.as_view(), name="signup"),
     path("login/", LoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("credentials/", CloudCredentialView.as_view(), name="credentials"),
+    path("credentials/csv/", CloudCredentialCSVView.as_view(), name="credentials-csv"),
+    path("credentials/<int:pk>/test/", CloudCredentialTestView.as_view(), name="credentials-test"),
 ]

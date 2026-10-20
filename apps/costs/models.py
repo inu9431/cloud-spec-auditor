@@ -1,9 +1,8 @@
-from django.contrib.admin.utils import help_text_for_field
 from django.db import models
 
 from apps.core.choices import NormalizedRegion, Provider
 from apps.core.models import BaseModel
-from apps.costs.choices import ConfidenceLevel, PricingModel, PricingSource
+from apps.costs.choices import ConfidenceLevel, CpuArch, PricingModel, PricingSource
 
 
 class CloudService(BaseModel):
@@ -28,10 +27,20 @@ class CloudService(BaseModel):
     # 스펙
     vcpu = models.IntegerField(help_text="가상환경 컴퓨팅 CPU")
     memory_gb = models.DecimalField(
-        max_digits=6, decimal_places=2, help_text="가상환경 컴퓨팅 메모리 용량"
+        max_digits=10, decimal_places=2, help_text="가상환경 컴퓨팅 메모리 용량"
     )
     storage_gb = models.IntegerField(
         null=True, blank=True, help_text="가상환경 컴퓨팅 스토리지 용량"
+    )
+    cpu_arch = models.CharField(
+        max_length=10,
+        choices=CpuArch.choices,
+        default=CpuArch.X86_64,
+        help_text="CPU 아키텍처 (x86_64 또는 arm64)",
+    )
+    is_burstable = models.BooleanField(
+        default=False,
+        help_text="버스터블 인스턴스 여부 (AWS t시리즈, GCP e2-micro/small, Azure B시리즈)",
     )
 
     # 가격 정보
@@ -59,10 +68,10 @@ class CloudService(BaseModel):
     class Meta:
         db_table = "cloud_services"
         indexes = [
+            # instance_type 단건 조회
             models.Index(fields=["provider", "instance_type"]),
-            models.Index(fields=["vcpu", "memory_gb"]),
-            models.Index(fields=["region_normalized"]),
-            models.Index(fields=["pricing_model"]),
+            # 3사 스펙 비교 쿼리: vcpu + memory_db, region_normalized, pricing_model 복합 필터
+            models.Index(fields=["vcpu", "memory_gb", "region_normalized", "pricing_model"]),
         ]
         constraints = [
             models.UniqueConstraint(
